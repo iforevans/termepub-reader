@@ -894,9 +894,15 @@ class ReaderUI:
 
     def show_info_popup(self, title: str, message: str, is_error: bool = False):
         """Show an info/error popup with styled border (white on blue/red), blocking until key press."""
-        # Ensure screen is ready
+        # Ensure colors are set up and screen is ready
+        if not self.has_colors:
+            self.setup_colors()
+        
+        # Set background color
+        if self.has_colors:
+            self.stdscr.bkgd(" ", curses.color_pair(2) if self.theme == "light" else curses.color_pair(1))
+        
         self.stdscr.erase()
-        self.stdscr.refresh()
         h, w = self.stdscr.getmaxyx()
         
         # Calculate message dimensions (wrap to fit screen width minus padding)
