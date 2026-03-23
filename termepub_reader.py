@@ -788,7 +788,7 @@ class ReaderUI:
         self.total_pages = self._compute_total_pages()  # Compute once
         self.store.set_state(self.book.path, BookState(self.chapter_index, self.page_index))
         self.store.save()
-        self.show_temp_message("Loaded: %s" % self.book.title, 1.0)
+        self.show_info_popup("Loaded", "Loaded: %s" % self.book.title)
 
     def _compute_total_pages(self) -> int:
         """Compute total pages in the book (cached, doesn't change with screen resize)."""
@@ -855,7 +855,7 @@ class ReaderUI:
         self.store.set_theme(self.theme)
         self.store.save()
         self.apply_theme()
-        self.show_temp_message("Theme: %s" % self.theme, 0.5)
+        self.show_info_popup("Theme", "Theme: %s" % self.theme)
 
     def toggle_header(self):
         self.show_header = not self.show_header
@@ -863,7 +863,7 @@ class ReaderUI:
         self.pages_cache.clear()
         self.total_pages = self._compute_total_pages()  # Recompute when header changes
         self.store.save()
-        self.show_temp_message("Header: %s" % ("on" if self.show_header else "off"), 0.5)
+        self.show_info_popup("Header", "Header: %s" % ("on" if self.show_header else "off"))
 
     def toggle_heading_style(self):
         """Toggle between reverse and bold for headings."""
@@ -873,7 +873,7 @@ class ReaderUI:
         else:
             self.heading_attr = curses.A_REVERSE
             style = "reverse"
-        self.show_temp_message("Heading style: %s" % style, 0.5)
+        self.show_info_popup("Heading", "Heading style: %s" % style)
 
     def get_overall_progress(self) -> Tuple[int, int]:
         """Return (current_page, total_pages) for the entire book."""
@@ -969,10 +969,6 @@ class ReaderUI:
         self.stdscr.getch()
         self.status_message = ""
     
-    def show_temp_message(self, message: str, duration: float = 0.5):
-        """Show a brief info popup (non-blocking for short duration)."""
-        self.show_info_popup("Info", message, is_error=False)
-
     def run(self):
         curses.curs_set(0)
         self.stdscr.keypad(True)
@@ -1236,7 +1232,7 @@ class ReaderUI:
             self.chapter_index += 1
             self.page_index = 0
         else:
-            self.show_temp_message("End of book", 0.5)
+            self.show_info_popup("Info", "End of book")
 
     def prev_page(self):
         if self.page_index > 0:
@@ -1246,7 +1242,7 @@ class ReaderUI:
             prev_pages = self._get_pages(self.chapter_index)
             self.page_index = max(0, len(prev_pages) - 1)
         else:
-            self.show_temp_message("Start of book", 0.5)
+            self.show_info_popup("Info", "Start of book")
 
     def prev_page(self):
         if self.page_index > 0:
@@ -1256,21 +1252,21 @@ class ReaderUI:
             prev_pages = self._get_pages(self.chapter_index)
             self.page_index = max(0, len(prev_pages) - 1)
         else:
-            self.show_temp_message("Start of book", 0.5)
+            self.show_info_popup("Info", "Start of book")
 
     def next_chapter(self):
         if self.chapter_index + 1 < len(self.book.chapters):
             self.chapter_index += 1
             self.page_index = 0
         else:
-            self.show_temp_message("Last chapter", 0.5)
+            self.show_info_popup("Info", "Last chapter")
 
     def prev_chapter(self):
         if self.chapter_index > 0:
             self.chapter_index -= 1
             self.page_index = 0
         else:
-            self.show_temp_message("First chapter", 0.5)
+            self.show_info_popup("Info", "First chapter")
 
     def open_toc(self):
         entries = self.book.toc
@@ -1326,10 +1322,10 @@ class ReaderUI:
     def search_prompt(self):
         query = self.prompt("Search: ").strip()
         if not query:
-            self.show_temp_message("Search cancelled", 0.5)
+            self.show_info_popup("Search", "Search cancelled")
             return
         if not self.search(query):
-            self.show_temp_message("Not found: %s" % query, 0.5)
+            self.show_info_popup("Search", "Not found: %s" % query)
 
     def search(self, query: str) -> bool:
         q = ascii_sanitize(query).lower()
@@ -1342,7 +1338,7 @@ class ReaderUI:
                 continue
             self.chapter_index = ch_idx
             self.page_index = self._page_for_char_offset(ch_idx, pos)
-            self.show_temp_message("Found in chapter %d" % (ch_idx + 1), 0.5)
+            self.show_info_popup("Search", "Found in chapter %d" % (ch_idx + 1))
             return True
         return False
 
@@ -1364,20 +1360,20 @@ class ReaderUI:
         self.store.set_bookmark(self.book.path, self.chapter_index, self.page_index)
         self.store.set_state(self.book.path, BookState(self.chapter_index, self.page_index))
         self.store.save()
-        self.show_temp_message("Bookmark saved", 0.5)
+        self.show_info_popup("Bookmark", "Bookmark saved")
 
     def open_file_picker(self):
         start_dir = os.path.dirname(self.book.path) if self.book and self.book.path else os.getcwd()
         picker = FilePicker(self.stdscr, start_dir)
         selected = picker.run()
         if not selected:
-            self.show_temp_message("Load cancelled", 0.5)
+            self.show_info_popup("Load", "Load cancelled")
             return
         self._save_position()
         try:
             new_book = EpubBook(selected)
         except Exception as exc:
-            self.show_temp_message("Failed to open: %s" % exc, 0.5)
+            self.show_info_popup("Error", "Failed to open: %s" % exc, is_error=True)
             return
         self.load_book(new_book, use_saved_position=True)
 
