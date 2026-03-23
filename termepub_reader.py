@@ -934,12 +934,15 @@ class ReaderUI:
             self.stdscr.addnstr(start_y + popup_height - 1, start_x, "+" + "-" * (popup_width - 2) + "+", popup_width)
             self.stdscr.attroff(popup_attr)
             
-            # Draw title (centered, bold)
+            # Draw title (centered, bold on popup background)
             title_line = title.center(popup_width - 2)
             title_x = start_x + 1
-            self.stdscr.attron(curses.color_pair(3) | curses.A_BOLD)
+            # Fill with popup background first
+            self.stdscr.attron(popup_attr)
+            self.stdscr.addnstr(start_y + 1, title_x, " " * (popup_width - 2), popup_width - 2)
+            # Then draw title text on top
             self.stdscr.addnstr(start_y + 1, title_x, title_line[:popup_width - 2], popup_width - 2)
-            self.stdscr.attroff(curses.color_pair(3) | curses.A_BOLD)
+            self.stdscr.attroff(popup_attr)
             
             # Draw message with popup background
             msg_start_y = start_y + 2
