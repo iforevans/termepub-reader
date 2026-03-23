@@ -827,6 +827,9 @@ class ReaderUI:
             curses.use_default_colors()
             curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
             curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
+            # Reverse video colors (for popups)
+            curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLUE)  # Info popup (white on blue)
+            curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_RED)   # Error popup (white on red)
             self.has_colors = True
         except curses.error:
             self.has_colors = False
@@ -888,13 +891,12 @@ class ReaderUI:
         
         return (current_page, self.total_pages)
 
-    def show_temp_message(self, message: str, duration: float = 0.5):
-        """Show a centered message with border for a brief moment, blocking briefly."""
+    def show_info_popup(self, title: str, message: str, is_error: bool = False):
+        """Show an info/error popup with styled border (white on blue/red), blocking until key press."""
         h, w = self.stdscr.getmaxyx()
-
         
         # Calculate message dimensions (wrap to fit screen width minus padding)
-        max_msg_width = w - 6
+        max_msg_width = min(w - 6, 60)
         lines = []
         for word in message.split():
             if not lines:
@@ -904,34 +906,68 @@ class ReaderUI:
             else:
                 lines.append(word)
         
-        # Create border
-        border_width = max(len(max(lines, default="")), 10) + 4  # 2 char padding + 2 border
-        border = "+" + "-" * border_width + "+"
+        popup_width = min(max(len(max(lines, default="")), len(title)) + 4, w - 2)
+        popup_height = len(lines) + 4  # title + message + borders
+        start_y = (h - popup_height) // 2
+        start_x = (w - popup_width) // 2
         
-        # Center the message box
-        msg_height = len(lines) + 2  # +2 for top/bottom border
-        start_row = max(0, (h - msg_height) // 2)
-        start_col = max(0, (w - border_width) // 2)
+        # Determine popup attribute based on type
+        if is_error:
+            popup_attr = curses.color_pair(7)  # White on red
+        else:
+            popup_attr = curses.color_pair(6)  # White on blue
         
-        # Draw the box
         try:
-            # Top border
-            self.stdscr.addnstr(start_row, start_col, border, border_width, curses.A_REVERSE)
-            # Message lines
+            # Draw popup border (top)
+            self.stdscr.attron(popup_attr)
+            self.stdscr.addnstr(start_y, start_x, "+" + "-" * (popup_width - 2) + "+", popup_width)
+            self.stdscr.attroff(popup_attr)
+            
+            # Draw sides (empty)
+            for y in range(1, popup_height - 1):
+                self.stdscr.attron(popup_attr)
+                self.stdscr.addnstr(start_y + y, start_x, "|" + " " * (popup_width - 2) + "|", popup_width)
+                self.stdscr.attroff(popup_attr)
+            
+            # Draw popup border (bottom)
+            self.stdscr.attron(popup_attr)
+            self.stdscr.addnstr(start_y + popup_height - 1, start_x, "+" + "-" * (popup_width - 2) + "+", popup_width)
+            self.stdscr.attroff(popup_attr)
+            
+            # Draw title (centered, bold)
+            title_line = title.center(popup_width - 2)
+            title_x = start_x + 1
+            self.stdscr.attron(curses.color_pair(3) | curses.A_BOLD)
+            self.stdscr.addnstr(start_y + 1, title_x, title_line[:popup_width - 2], popup_width - 2)
+            self.stdscr.attroff(curses.color_pair(3) | curses.A_BOLD)
+            
+            # Draw message with popup background
+            msg_start_y = start_y + 2
             for i, line in enumerate(lines):
-                row = start_row + 1 + i
-                content = " " + line.center(border_width - 2) + " "
-                self.stdscr.addnstr(row, start_col, content, border_width, curses.A_REVERSE)
-            # Bottom border
-            bottom_row = start_row + msg_height - 1
-            self.stdscr.addnstr(bottom_row, start_col, border, border_width, curses.A_REVERSE)
+                msg_width = popup_width - 4
+                # Fill the line with background color first
+                self.stdscr.attron(popup_attr)
+                self.stdscr.addnstr(msg_start_y + i, start_x + 2, " " * msg_width, msg_width)
+                # Then draw text on top
+                self.stdscr.addnstr(msg_start_y + i, start_x + 2, line[:msg_width], msg_width)
+                self.stdscr.attroff(popup_attr)
+            
+            # Draw "Press any key" at bottom
+            prompt = "Press any key...".center(popup_width - 2)
+            self.stdscr.attron(popup_attr)
+            self.stdscr.addnstr(start_y + popup_height - 2, start_x + 1, prompt, popup_width - 2)
+            self.stdscr.attroff(popup_attr)
         except curses.error:
             pass
         
         self.stdscr.refresh()
-        # Block briefly
-        time.sleep(duration)
+        # Wait for any key
+        self.stdscr.getch()
         self.status_message = ""
+    
+    def show_temp_message(self, message: str, duration: float = 0.5):
+        """Show a brief info popup (non-blocking for short duration)."""
+        self.show_info_popup("Info", message, is_error=False)
 
     def run(self):
         curses.curs_set(0)
