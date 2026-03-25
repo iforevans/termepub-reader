@@ -366,7 +366,20 @@ class EpubBook:
             extractor = EpubTextExtractor()
             extractor.feed(raw)
             text = extractor.get_text().strip()
-            title = self._guess_title(raw, idx)
+            
+            # Get title from TOC if available, otherwise use generic chapter number
+            # This avoids duplicating heading text that's already in the chapter content
+            toc_title = None
+            for toc_entry in self.toc:
+                if toc_entry.spine_index == idx:
+                    toc_title = toc_entry.title
+                    break
+            
+            if toc_title:
+                title = toc_title
+            else:
+                title = "Chapter %d" % (idx + 1)
+            
             if not text:
                 text = "[This chapter contains no readable text.]"
             self.chapters.append(text + "\n")
