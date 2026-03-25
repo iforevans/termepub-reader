@@ -1332,8 +1332,8 @@ class ReaderUI:
         
         body_start = 1 if self.show_header else 0
         if self.show_header:
-            title = self.book.chapter_titles[self.chapter_index]
-            header = "%s - %s" % (self.book.title, title)
+            # Just show the book title in the header
+            header = self.book.title
             try:
                 self.stdscr.addnstr(0, 0, header, w - 1, self.header_attr)
             except curses.error:
