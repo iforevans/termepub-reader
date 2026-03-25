@@ -368,12 +368,20 @@ class EpubBook:
             text = extractor.get_text().strip()
             
             # Get title from TOC if available, otherwise use generic chapter number
-            # This avoids duplicating heading text that's already in the chapter content
             toc_title = None
             for toc_entry in self.toc:
                 if toc_entry.spine_index == idx:
                     toc_title = toc_entry.title
                     break
+            
+            # If no TOC entry for this spine index, use the href to find a matching TOC entry
+            if not toc_title:
+                for toc_entry in self.toc:
+                    # Compare hrefs (normalize both)
+                    toc_href = norm_href(self.rootfile, toc_entry.href)
+                    if os.path.normpath(toc_href) == os.path.normpath(href):
+                        toc_title = toc_entry.title
+                        break
             
             if toc_title:
                 title = toc_title
@@ -381,15 +389,11 @@ class EpubBook:
                 title = "Chapter %d" % (idx + 1)
             
             # Remove duplicate chapter title from start of text if it matches the TOC title
-            # Some EPUBs have the chapter heading both in TOC and as first element of content
             text_lower = text.lower().strip()
             title_lower = title.lower().strip()
             if text_lower.startswith(title_lower):
-                # Try to remove the title from the start of the text
-                # Handle variations: "CHAPTER ONE", "CHAPTER ONE\n", "CHAPTER ONE.", etc.
                 pattern = r'^' + re.escape(title) + r'\s*\.?\s*\n*'
                 text = re.sub(pattern, '', text, flags=re.I)
-                # If still starts with the title (maybe no period/newline), try again
                 text_lower = text.lower().strip()
                 if text_lower.startswith(title_lower):
                     pattern = r'^' + re.escape(title) + r'\s+'
