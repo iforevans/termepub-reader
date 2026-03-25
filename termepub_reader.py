@@ -44,20 +44,56 @@ def norm_href(base_path: str, href: str) -> str:
 
 
 def ascii_sanitize(text: str) -> str:
+    """Convert special characters to ASCII equivalents for terminal compatibility."""
     replacements = {
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u2013": "-",
-        "\u2014": "--",
-        "\u2026": "...",
-        "\u00a0": " ",
-        "\u00ad": "",
+        "\u2018": "'",  # Left single quote
+        "\u2019": "'",  # Right single quote
+        "\u201c": '"',  # Left double quote
+        "\u201d": '"',  # Right double quote
+        "\u2013": "-",  # En dash
+        "\u2014": "--", # Em dash
+        "\u2026": "...",# Ellipsis
+        "\u00a0": " ",  # Non-breaking space
+        "\u00ad": "",   # Soft hyphen
+        "\u2190": "<-", # Left arrow
+        "\u2191": "^",  # Up arrow
+        "\u2192": "->", # Right arrow
+        "\u2193": "v",  # Down arrow
+        "\u2010": "-",  # Hyphen
+        "\u2011": "-",  # Non-breaking hyphen
+        "\u2012": "-",  # Figure dash
+        "\u2015": "---",# Horizontal bar
+        "\u2039": "<",  # Single left-pointing angle quotation mark
+        "\u203a": ">",  # Single right-pointing angle quotation mark
+        "\u2500": "-",  # Box drawings light horizontal
+        "\u2502": "|",  # Box drawings light vertical
+        "\u2514": "+",  # Box drawings light up and horizontal
+        "\u251c": "+",  # Box drawings light vertical and horizontal
+        "\u2524": "+",  # Box drawings light up and vertical
+        "\u2534": "+",  # Box drawings light down and horizontal
+        "\u253c": "+",  # Box drawings light vertical and horizontal
+        "\u2550": "=",  # Box drawings double horizontal
+        "\u2551": "||", # Box drawings double vertical
+        "\u2588": "##", # Full block
+        "\u2591": "::", # Light shade
+        "\u2592": "::", # Medium shade
+        "\u2593": "##", # Dark shade
     }
     for src, dst in replacements.items():
         text = text.replace(src, dst)
-    return unicodedata.normalize("NFKC", text)
+    
+    # Normalize and filter any remaining non-ASCII
+    text = unicodedata.normalize("NFKC", text)
+    
+    # Replace any remaining non-ASCII with space or remove
+    result = []
+    for char in text:
+        if ord(char) < 128:
+            result.append(char)
+        elif char.isspace():
+            result.append(' ')
+        # Otherwise skip the character
+    return ''.join(result)
 
 
 class EpubTextExtractor(HTMLParser):
