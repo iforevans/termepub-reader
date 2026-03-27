@@ -2,6 +2,8 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
+**Version:** 0.4.2
+
 ## Features
 
 - **File Picker:** Browse and open EPUB files with advanced navigation
@@ -11,6 +13,7 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 - **Bookmarks:** Save and restore reading position
 - **Themes:** Dark/light mode toggle
 - **Progress Tracking:** Overall book pagination with percentage
+- **CSS Styling:** Inline CSS support (bold, underline, italic) - *v0.4.2*
 
 ## Controls
 
@@ -32,8 +35,12 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 ## Usage
 
 ```bash
-termepub_reader.py [book.epub] [--bookmark]
+termepub_reader.py [book.epub] [--bookmark] [--no-css]
 ```
+
+**Options:**
+- `--bookmark`: Open book at saved bookmark position
+- `--no-css`: Disable inline CSS styling (faster on slow devices)
 
 ## Installation
 
@@ -46,6 +53,20 @@ termepub_reader.py [book.epub] [--bookmark]
    ```bash
    ./termepub_reader.py
    ```
+
+## CSS Styling Support (v0.4.2)
+
+The reader now supports inline CSS styling from EPUB files:
+
+**Currently rendered:**
+- **Bold text:** `<b>`, `<strong>`, `font-weight: bold`
+- **Underline:** `<u>`, `text-decoration: underline`
+- **Italic:** `<i>`, `<em>`, `font-style: italic` (terminal-dependent)
+- **Line-through:** `<s>`, `<strike>`, `<del>` (terminal-dependent)
+
+**Future work:**
+- Color support (`color: #rrggbb`, `color: rgb(r,g,b)`)
+- More text decorations and font properties
 
 ## Requirements
 
