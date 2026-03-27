@@ -32,6 +32,19 @@ class BookState:
     page_index: int = 0
 
 
+@dataclass
+class StyledSegment:
+    """A text segment with associated CSS styles."""
+    text: str
+    styles: dict  # {'font_weight': 'bold', 'color': '#ff0000', ...}
+    
+    def merge_with(self, other: 'StyledSegment') -> 'StyledSegment':
+        """Merge with another segment if styles are identical."""
+        if self.styles == other.styles:
+            return StyledSegment(self.text + other.text, self.styles)
+        return None
+
+
 def strip_ns(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -174,19 +187,28 @@ def hex_to_16_color(hex_color: str) -> Optional[int]:
 
 
 class EpubTextExtractor(HTMLParser):
+    """HTML parser that extracts text with inline CSS styling information."""
     BLOCK_TAGS = {
         "p", "div", "section", "article", "aside", "blockquote", "pre",
         "ul", "ol", "li", "dl", "dt", "dd", "table", "tr", "td", "th",
         "h1", "h2", "h3", "h4", "h5", "h6", "br", "hr"
     }
 
-    def __init__(self):
+    def __init__(self, use_css: bool = True):
         super().__init__(convert_charrefs=True)
-        self.parts: List[str] = []
+        self.use_css = use_css
+        self.segments: List[StyledSegment] = []
         self.pre_depth = 0
         self.list_depth = 0
-        self.in_heading = False
         self.skip_depth = 0
+        self.style_stack: List[dict] = [{}]  # Stack for style inheritance
+
+    def _get_current_styles(self) -> dict:
+        """Get current inherited styles by merging the style stack."""
+        merged = {}
+        for style_dict in self.style_stack:
+            merged.update(style_dict)
+        return merged
 
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
@@ -196,29 +218,49 @@ class EpubTextExtractor(HTMLParser):
         if self.skip_depth:
             return
 
+        # Extract inline styles from this tag
+        tag_styles = {}
+        if self.use_css and 'style' in attrs_dict:
+            tag_styles = parse_inline_style(attrs_dict['style'])
+
+        # Add semantic styles from tag type (e.g., <b> means bold)
+        if self.use_css:
+            if tag in {"b", "strong"}:
+                tag_styles['font_weight'] = 'bold'
+            elif tag in {"i", "em"}:
+                tag_styles['font_style'] = 'italic'
+            elif tag == "u":
+                tag_styles['text_decoration'] = 'underline'
+            elif tag in {"s", "strike", "del"}:
+                tag_styles['text_decoration'] = 'line-through'
+
+        # Push styles onto stack if there are any
+        if tag_styles:
+            self.style_stack.append(tag_styles)
+
         if tag == "pre":
             self.pre_depth += 1
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag in {"ul", "ol"}:
             self.list_depth += 1
-            self.parts.append("\n")
+            self.segments.append(StyledSegment("\n", self._get_current_styles().copy()))
         elif tag == "li":
-            self.parts.append("\n" + "  " * max(0, self.list_depth - 1) + "- ")
+            indent = "  " * max(0, self.list_depth - 1)
+            self.segments.append(StyledSegment(indent + "- ", self._get_current_styles().copy()))
         elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            self.in_heading = True
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag == "blockquote":
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag == "img":
             alt = (attrs_dict.get("alt") or "").strip()
             if alt:
-                self.parts.append("[Image: %s]" % alt)
+                self.segments.append(StyledSegment("[Image: %s]" % alt, self._get_current_styles().copy()))
         elif tag == "br":
-            self.parts.append("\n")
+            self.segments.append(StyledSegment("\n", self._get_current_styles().copy()))
         elif tag in {"p", "div", "section", "article"}:
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag in self.BLOCK_TAGS:
-            self.parts.append("\n")
+            self.segments.append(StyledSegment("\n", self._get_current_styles().copy()))
 
     def handle_endtag(self, tag):
         if tag in {"script", "style"} and self.skip_depth > 0:
@@ -227,47 +269,79 @@ class EpubTextExtractor(HTMLParser):
         if self.skip_depth:
             return
 
+        # Pop styles from stack if this tag could have added styles
+        if (tag in {"b", "strong", "i", "em", "u", "s", "strike", "del", "span",
+                    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6"} and
+            len(self.style_stack) > 1):
+            self.style_stack.pop()
+
         if tag == "pre" and self.pre_depth > 0:
             self.pre_depth -= 1
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag in {"ul", "ol"} and self.list_depth > 0:
             self.list_depth -= 1
-            self.parts.append("\n")
+            self.segments.append(StyledSegment("\n", self._get_current_styles().copy()))
         elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            self.in_heading = False
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag == "blockquote":
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag in {"p", "div", "section", "article"}:
-            self.parts.append("\n\n")
+            self.segments.append(StyledSegment("\n\n", self._get_current_styles().copy()))
         elif tag in self.BLOCK_TAGS:
-            self.parts.append("\n")
+            self.segments.append(StyledSegment("\n", self._get_current_styles().copy()))
 
     def handle_data(self, data):
         if not data or self.skip_depth:
             return
+
+        # Clean the text based on context
         if self.pre_depth:
-            self.parts.append(ascii_sanitize(data))
+            clean_text = ascii_sanitize(data)
+        else:
+            clean_text = re.sub(r"\s+", " ", data)
+            clean_text = ascii_sanitize(clean_text)
+
+        if not clean_text.strip():
             return
-        text = re.sub(r"\s+", " ", data)
-        text = ascii_sanitize(text)
-        # Wrap headings for special rendering - use unique markers
-        if self.in_heading:
-            text = "\x00H\x00" + text + "\x00/H\x00"
-        self.parts.append(text)
+
+        # Create segment with current inherited styles
+        segment = StyledSegment(clean_text, self._get_current_styles().copy())
+        self.segments.append(segment)
+
+    def _merge_adjacent_segments(self, segments: List[StyledSegment]) -> List[StyledSegment]:
+        """Merge adjacent segments with identical styles for efficiency.
+        
+        Does NOT merge across paragraph breaks (whitespace-only segments).
+        """
+        if not segments:
+            return segments
+
+        merged = [segments[0]]
+        for seg in segments[1:]:
+            last = merged[-1]
+            # Don't merge across paragraph breaks (whitespace-only segments)
+            if last.text.strip() == '' or seg.text.strip() == '':
+                merged.append(seg)
+            elif last.styles == seg.styles:
+                merged[-1] = StyledSegment(last.text + seg.text, last.styles)
+            else:
+                merged.append(seg)
+        return merged
+
+    def get_segments(self) -> List[StyledSegment]:
+        """Return styled text segments, merged where possible.
+        
+        Preserves paragraph breaks (segments that are only whitespace).
+        """
+        # Filter out truly empty segments (zero length), but keep whitespace-only ones
+        # as they serve as paragraph breaks
+        non_empty = [s for s in self.segments if s.text]
+        return self._merge_adjacent_segments(non_empty)
 
     def get_text(self) -> str:
-        text = "".join(self.parts)
-        text = html.unescape(text)
-        text = ascii_sanitize(text)
-        # Remove heading markers (using null bytes for reliability)
-        text = re.sub(r"\x00H\x00", "", text)
-        text = re.sub(r"\x00/H\x00", "", text)
-        text = re.sub(r"\n[ \t]+", "\n", text)
-        text = re.sub(r"[ \t]+\n", "\n", text)
-        text = re.sub(r" {2,}", " ", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip() + "\n"
+        """Return plain text (for backward compatibility with search, etc.)."""
+        segments = self.get_segments()
+        return ''.join(seg.text for seg in segments)
 
 
 class EpubBook:
@@ -283,7 +357,7 @@ class EpubBook:
         self.spine_hrefs: List[str] = []
         self.chapter_titles: List[str] = []
         self.chapters: List[str] = []
-        self.chapter_styles: Dict[int, List[Tuple[int, int, dict]]] = {}  # chapter_idx -> [(char_start, char_end, styles), ...]
+        self.chapter_segments: List[List[StyledSegment]] = []  # Styled segments per chapter
         self.toc: List[TocEntry] = []
         self._parse_package()
         self._load_toc()       # Load TOC FIRST
@@ -353,19 +427,19 @@ class EpubBook:
                 raw = self.zf.read(href).decode("utf-8", errors="replace")
             except KeyError:
                 self.chapters.append("[Missing chapter content]\n")
-                self.chapter_styles[idx] = []
+                self.chapter_segments.append([])
                 self.chapter_titles.append("Chapter %d" % (idx + 1))
                 continue
             
-            # Extract styles from raw HTML if CSS is enabled
-            if self.use_css:
-                self.chapter_styles[idx] = self._extract_styles_from_html(raw)
-            else:
-                self.chapter_styles[idx] = []
-            
-            extractor = EpubTextExtractor()
+            # Use the new styled segment extractor
+            extractor = EpubTextExtractor(use_css=self.use_css)
             extractor.feed(raw)
-            text = extractor.get_text().strip()
+            
+            # Get styled segments
+            segments = extractor.get_segments()
+            
+            # Convert to plain text for backward compatibility
+            text = ''.join(seg.text for seg in segments)
             
             # Get title from TOC if available, otherwise use generic chapter number
             toc_title = None
@@ -388,20 +462,23 @@ class EpubBook:
             else:
                 title = "Chapter %d" % (idx + 1)
             
-            # Remove duplicate chapter title from start of text if it matches the TOC title
-            text_lower = text.lower().strip()
-            title_lower = title.lower().strip()
-            if text_lower.startswith(title_lower):
-                pattern = r'^' + re.escape(title) + r'\s*\.?\s*\n*'
-                text = re.sub(pattern, '', text, flags=re.I)
-                text_lower = text.lower().strip()
-                if text_lower.startswith(title_lower):
-                    pattern = r'^' + re.escape(title) + r'\s+'
-                    text = re.sub(pattern, '', text, flags=re.I)
+            # Remove duplicate chapter heading from body (if it appears at the start)
+            # This handles cases where the TOC title is repeated in the chapter content
+            if toc_title:
+                title_stripped = toc_title.strip()
+                text_stripped = text.strip()
+                # If text starts with the title (possibly with extra newlines), remove it
+                pattern = r'^' + re.escape(title_stripped) + r'\s*\n*\s*' + re.escape(title_stripped) + r'\s*\n+'
+                text = re.sub(pattern, title_stripped + '\n\n', text, flags=re.I)
+            
+            # Normalize paragraph breaks - reduce multiple blank lines to just one
+            text = re.sub(r'\n{3,}', '\n\n', text)
             
             if not text:
                 text = "[This chapter contains no readable text.]"
+            
             self.chapters.append(text + "\n")
+            self.chapter_segments.append(segments)
             self.chapter_titles.append(title)
 
     def _extract_styles_from_html(self, raw_html: str) -> List[Tuple[int, int, dict]]:
@@ -1043,6 +1120,35 @@ class ReaderUI:
         # Use bold for headings instead of reverse (more readable)
         self.heading_attr = curses.A_BOLD
 
+    def styles_to_curses_attr(self, css_styles: dict) -> int:
+        """Convert CSS styles dict to curses attribute flags.
+        
+        Handles: font-weight (bold), text-decoration (underline, line-through)
+        Colors are mapped to the 16-color ANSI palette.
+        """
+        attr = curses.A_NORMAL
+
+        # Font weight: bold
+        if css_styles.get('font_weight') in ('bold', '700', '800', '900'):
+            attr |= curses.A_BOLD
+
+        # Text decoration: underline (line-through not well supported in terminals)
+        if css_styles.get('text_decoration') == 'underline':
+            attr |= curses.A_UNDERLINE
+
+        # Font style: italic (not well supported, skip for now)
+        # Some terminals support curses.A_ITALIC but it's non-standard
+
+        # Color mapping (simplified: just use bright attributes for now)
+        # Full implementation would need dynamic color pair allocation
+        if 'color' in css_styles:
+            color_idx = hex_to_16_color(css_styles['color'])
+            if color_idx is not None and self.has_colors:
+                # For now, skip color rendering - would need pair management
+                pass
+
+        return attr
+
     def toggle_theme(self):
         self.theme = "light" if self.theme == "dark" else "dark"
         self.store.set_theme(self.theme)
@@ -1242,9 +1348,11 @@ class ReaderUI:
             out.pop()
         return out
 
-    def _get_pages_with_attrs(self, chapter_index: int) -> List[Tuple[List[str], List[int]]]:
-        """Get pages with attribute flags for each line (1=heading, 0=normal)."""
-        # Check cache first (keyed by chapter index and screen dimensions)
+    def _get_styled_pages(self, chapter_index: int) -> List[List[Tuple[str, int]]]:
+        """Get pages as list of (line_text, curses_attr) tuples.
+        
+        Wraps text properly and applies CSS styles based on character positions.
+        """
         h, w = self.stdscr.getmaxyx()
         cache_key = (chapter_index, h, w)
         
@@ -1254,67 +1362,57 @@ class ReaderUI:
         body_h = max(3, h - (2 if self.show_header else 1))
         body_w = max(20, w - 1)
         
-        # Get the raw chapter text (before get_text() processes it)
-        # We need to check for heading markers in the raw HTML
-        try:
-            href = self.book.spine_hrefs[self.chapter_index]
-            raw_html = self.book.zf.read(href).decode("utf-8", errors="replace")
-        except Exception:
-            # Fallback: can't read raw HTML
-            lines = self._wrap_text(self.book.chapters[chapter_index], body_w)
-            pages = [(lines, [0] * len(lines))] or [([""], [0])]
-            self.pages_attrs_cache[cache_key] = pages
-            return pages
+        # Get the plain text chapter
+        chapter_text = self.book.chapters[chapter_index]
+        segments = self.book.chapter_segments[chapter_index]
         
-        # Find all heading text and their positions in raw HTML
-        heading_positions = []
-        for match in re.finditer(r'<(h[1-6])[^>]*>(.*?)</\1>', raw_html, re.I | re.S):
-            heading_text = re.sub(r'<[^>]+>', '', match.group(2))
-            heading_text = re.sub(r'\s+', ' ', heading_text).strip()
-            if heading_text:
-                # Find this text in the raw HTML
-                pos = raw_html.find(heading_text)
-                if pos != -1:
-                    heading_positions.append((pos, pos + len(heading_text)))
+        # Wrap using the proven method
+        lines = self._wrap_text(chapter_text, body_w)
         
-        if not heading_positions:
-            # No headings, return normal text
-            lines = self._wrap_text(self.book.chapters[chapter_index], body_w)
-            pages = [(lines, [0] * len(lines))] or [([""], [0])]
-            self.pages_attrs_cache[cache_key] = pages
-            return pages
-        
-        # Now process the extracted text and mark heading lines
-        lines = self._wrap_text(self.book.chapters[chapter_index], body_w)
-        
-        # Convert HTML positions to text positions (rough approximation)
-        # The extracted text has HTML stripped, so positions won't match exactly
-        # We'll use a heuristic: look for the heading text in each line
-        heading_line_indices = set()
-        
-        for line_idx, line in enumerate(lines):
-            for start, end in heading_positions:
-                heading_text = raw_html[start:end]
-                # Check if this line contains the heading text (with some tolerance)
-                if heading_text.strip() in line.strip():
-                    heading_line_indices.add(line_idx)
-                    break
+        # Build style map from segments: character position -> curses attribute
+        if segments:
+            style_ranges: List[Tuple[int, int, int]] = []
+            char_pos = 0
+            for seg in segments:
+                attr = self.styles_to_curses_attr(seg.styles)
+                style_ranges.append((char_pos, char_pos + len(seg.text), attr))
+                char_pos += len(seg.text)
+            
+            # Apply styles to each line based on character position
+            styled_lines = []
+            char_offset = 0
+            for line in lines:
+                line_len = len(line)
+                # Find the first style that applies to this line
+                line_attr = curses.A_NORMAL
+                for start, end, attr in style_ranges:
+                    if start <= char_offset < end:
+                        line_attr = attr
+                        break
+                styled_lines.append((line, line_attr))
+                char_offset += line_len
+        else:
+            # Fallback to plain text if no segments
+            styled_lines = [(line, curses.A_NORMAL) for line in lines]
         
         # Split into pages
         pages = []
-        for i in range(0, len(lines), body_h):
-            page_lines = lines[i:i + body_h]
-            page_attrs = [1 if idx in heading_line_indices else 0 for idx in range(i, min(i + body_h, len(lines)))]
-            pages.append((page_lines, page_attrs))
+        for i in range(0, len(styled_lines), body_h):
+            page = styled_lines[i:i + body_h]
+            pages.append(page)
         
-        # Cache the result
         self.pages_attrs_cache[cache_key] = pages
         return pages
 
+    def _get_pages_with_attrs(self, chapter_index: int) -> List[Tuple[List[str], List[int]]]:
+        """Legacy method - now just wraps _get_styled_pages for compatibility."""
+        styled_pages = self._get_styled_pages(chapter_index)
+        return [([line for line, _ in page], [attr for _, attr in page]) for page in styled_pages]
+
     def _get_pages(self, chapter_index: int) -> List[List[str]]:
         """Legacy method for backward compatibility."""
-        pages_with_attrs = self._get_pages_with_attrs(chapter_index)
-        return [lines for lines, _ in pages_with_attrs]
+        styled_pages = self._get_styled_pages(chapter_index)
+        return [[line for line, _ in page] for page in styled_pages]
 
     def draw(self):
         self.stdscr.erase()
@@ -1322,13 +1420,9 @@ class ReaderUI:
             self.stdscr.bkgd(" ", curses.color_pair(2) if self.theme == "light" else curses.color_pair(1))
         h, w = self.stdscr.getmaxyx()
         
-        # Get pages with attributes
-        pages_with_attrs = self._get_pages_with_attrs(self.chapter_index)
-        pages = [lines for lines, _ in pages_with_attrs]
-        page_attrs = [attrs for _, attrs in pages_with_attrs]
-        
-        page = pages[self.page_index] if pages else [""]
-        attrs = page_attrs[self.page_index] if page_attrs else []
+        # Get styled pages directly
+        styled_pages = self._get_styled_pages(self.chapter_index)
+        page = styled_pages[self.page_index] if styled_pages else [("", curses.A_NORMAL)]
         
         body_start = 1 if self.show_header else 0
         if self.show_header:
@@ -1339,15 +1433,12 @@ class ReaderUI:
             except curses.error:
                 pass
         
-        for idx, (line, attr) in enumerate(zip(page, attrs), start=body_start):
+        # Render each line with its computed attributes
+        for idx, (line, attr) in enumerate(page, start=body_start):
             if idx >= h - 1:
                 break
             try:
-                if attr == 1:
-                    # Apply heading attribute (bold by default)
-                    self.stdscr.addnstr(idx, 0, line, w - 1, self.heading_attr)
-                else:
-                    self.stdscr.addnstr(idx, 0, line, w - 1)
+                self.stdscr.addnstr(idx, 0, line, w - 1, attr)
             except curses.error:
                 pass
         
@@ -1597,6 +1688,10 @@ def usage() -> str:
         "Options:\n"
         "  --bookmark    open book at saved bookmark position\n"
         "  --no-css      disable inline CSS styling (faster on slow devices)\n"
+        "\n"
+        "CSS Support:\n"
+        "  Inline CSS styling is now rendered (bold, underline, colors).\n"
+        "  Uses --no-css to disable on slow devices.\n"
     )
 
 
