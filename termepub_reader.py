@@ -532,44 +532,6 @@ class EpubBook:
             self.chapter_segments.append(segments)
             self.chapter_titles.append(title)
 
-    def _extract_styles_from_html(self, raw_html: str) -> List[Tuple[int, int, dict]]:
-        """Extract inline styles from HTML and map them to character positions in extracted text.
-        
-        Returns list of (char_start, char_end, styles) tuples for styled text segments.
-        This is a simplified approach that only handles inline styles on text content.
-        """
-        styles = []
-        
-        # Find all elements with inline styles that contain text
-        # Pattern: <tag style="...">text</tag>
-        pattern = r'<(\w+)([^>]*style\s*=\s*["\']([^"\']+)["\'][^>]*)>([^<]+)</\1>'
-        
-        for match in re.finditer(pattern, raw_html, re.I | re.S):
-            tag = match.group(1).lower()
-            style_attr = match.group(3)
-            text_content = match.group(4)
-            
-            # Skip non-text elements AND headings (headings are handled separately)
-            if tag in ('script', 'style', 'nav', 'footer', 'header', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'title'):
-                continue
-            
-            # Parse the styles
-            parsed_styles = parse_inline_style(style_attr)
-            if not parsed_styles:
-                continue
-            
-            # Get the clean text that would appear in the extracted content
-            clean_text = ascii_sanitize(html.unescape(text_content).strip())
-            if not clean_text:
-                continue
-            
-            # Find this text in the extracted chapter text
-            # We'll do this later when rendering, not here
-            # For now, just store the style info with the HTML position
-            styles.append((match.start(), match.end(), parsed_styles, clean_text))
-        
-        return styles
-
     def _guess_title(self, raw_html: str, idx: int) -> str:
         m = re.search(r"<title[^>]*>(.*?)</title>", raw_html, flags=re.I | re.S)
         if m:
@@ -1214,6 +1176,8 @@ class ReaderUI:
         self.theme = "light" if self.theme == "dark" else "dark"
         self.store.set_theme(self.theme)
         self.store.save()
+        self.pages_cache.clear()
+        self.pages_attrs_cache.clear()
         self.apply_theme()
         self.show_info_popup("Theme", "Theme: %s" % self.theme)
 
@@ -1233,6 +1197,8 @@ class ReaderUI:
         else:
             self.heading_attr = curses.A_REVERSE
             style = "reverse"
+        self.pages_cache.clear()
+        self.pages_attrs_cache.clear()
         self.show_info_popup("Heading", "Heading style: %s" % style)
 
     def get_overall_progress(self) -> Tuple[int, int]:
@@ -1584,16 +1550,6 @@ class ReaderUI:
             self.page_index = 0
         else:
             self.show_info_popup("Info", "End of book")
-
-    def prev_page(self):
-        if self.page_index > 0:
-            self.page_index -= 1
-        elif self.chapter_index > 0:
-            self.chapter_index -= 1
-            prev_pages = self._get_pages(self.chapter_index)
-            self.page_index = max(0, len(prev_pages) - 1)
-        else:
-            self.show_info_popup("Info", "Start of book")
 
     def prev_page(self):
         if self.page_index > 0:
