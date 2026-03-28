@@ -2,13 +2,13 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.3
+**Version:** 0.4.4
 
 ## Features
 
 - **File Picker:** Browse and open EPUB files with advanced navigation
 - **Navigation:** Page/chapter forward/back (arrow keys, j/k, n/p)
-- **Table of Contents:** Jump to chapters via TOC
+- **Table of Contents:** Interactive TOC with visual selection indicator (=>) - *v0.4.4*
 - **Search:** Full-text search with chapter highlighting
 - **Bookmarks:** Save and restore reading position
 - **Themes:** Dark/light mode toggle

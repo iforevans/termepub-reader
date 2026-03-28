@@ -25,7 +25,7 @@ from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-__version__ = "0.4.3"
+__version__ = "0.4.4"
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "termepub")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
@@ -1617,13 +1617,27 @@ class ReaderUI:
         row = 1
         for i in range(start, end):
             entry = entries[i]
-            text = "%3d. %s" % (entry.spine_index + 1, entry.title)
-            attr = self.selected_attr if i == selected else curses.A_NORMAL
+            # Format: "=> CHAPTER ONE" or "   main" (no numbers, cleaner)
+            if i == selected:
+                # Use selected_attr if available, otherwise fallback to reverse video
+                attr = self.selected_attr if self.selected_attr != curses.A_NORMAL else curses.A_REVERSE
+                text = "=> " + entry.title
+            else:
+                attr = curses.A_NORMAL
+                text = "   " + entry.title  # Pad with 3 spaces to align with "=> "
             try:
                 self.stdscr.addnstr(row, 0, text, w - 1, attr)
             except curses.error:
                 pass
             row += 1
+        
+        # Show navigation hint at bottom
+        hint = "↑/↓ or j/k: navigate | Enter/Right: jump | q/Esc: back"
+        try:
+            self.stdscr.addnstr(h - 1, 0, hint.ljust(max(0, w - 1)), w - 1, self.footer_attr)
+        except curses.error:
+            pass
+        
         self.stdscr.refresh()
 
     def search_prompt(self):
