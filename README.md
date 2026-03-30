@@ -2,7 +2,7 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.7 (2026-03-29)
+**Version:** 0.4.8 (2026-03-30)
 
 ## Features
 
@@ -116,6 +116,25 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 **Cleanup:**
 - Converted remaining `%` formatting to f-strings (18 instances)
 - Improved consistency with modern Python 3.9+ style
+
+### v0.4.8 (2026-03-30) - Style Boundary Fix
+
+**Bug Fixes:**
+- Fixed CSS style mapping for wrapped text (styles now preserved across line breaks)
+- Deduplicates consecutive identical segments (e.g., duplicate chapter headings)
+- Limits consecutive blank lines to avoid excessive whitespace
+
+**Technical:**
+- Rewrote text wrapping to use segment-aware algorithm
+- Each line can now have multiple style fragments (e.g., "Title: Pride and Prejudice" with "Title" bold)
+- Style boundaries are preserved even when text wraps
+
+### v0.4.7 (2026-03-29) - Code Quality
+
+**Cleanup:**
+- Removed dead code (`_get_pages_with_attrs` method)
+- Renamed `_get_pages` to `_get_plain_pages` for clarity
+- Added safety checks for style stack underflow
 
 ### v0.4.5 (2026-03-28) - TOC Improvements
 

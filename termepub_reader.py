@@ -25,7 +25,7 @@ from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-__version__ = "0.4.6"
+__version__ = "0.4.8"
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "termepub")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
@@ -1390,13 +1390,130 @@ class ReaderUI:
             out.pop()
         return out
 
-    def _get_styled_pages(self, chapter_index: int) -> List[List[Tuple[str, int]]]:
-        """Get pages as list of (line_text, curses_attr) tuples.
+    def _wrap_segments_with_styles(self, segments: List[StyledSegment], width: int) -> List[List[Tuple[str, int]]]:
+        """Wrap styled segments while preserving style boundaries.
         
-        Wraps text properly and applies CSS styles based on character positions.
+        Returns list of lines, where each line is a list of (text_fragment, curses_attr) tuples.
+        This allows multiple styles per line (e.g., "Hello [bold]world[/bold]").
+        
+        Strategy: Greedy line building with segment splitting.
+        - Accumulate segment fragments until line would exceed width
+        - If current segment would overflow, split it at width boundary
+        - Keep the remainder for next line
+        - Each fragment retains its original style attribute
+        
+        Args:
+            segments: List of StyledSegment objects from EpubTextExtractor
+            width: Maximum line width in characters
+            
+        Returns:
+            List of lines, each line is List[Tuple[fragment_text, curses_attr]]
+        """
+        if not segments:
+            return []
+        
+        lines: List[List[Tuple[str, int]]] = []
+        current_line: List[Tuple[str, int]] = []
+        current_width = 0
+        
+        def flush_line():
+            """Commit current line and reset for next line."""
+            nonlocal current_line, current_width
+            if current_line:
+                lines.append(current_line)
+            current_line = []
+            current_width = 0
+        
+        def add_fragment(text: str, attr: int):
+            """Add a text fragment to current line, splitting if needed."""
+            nonlocal current_line, current_width
+            
+            if not text:
+                return
+                
+            # Simple case: fragment fits on current line
+            if current_width + len(text) <= width:
+                current_line.append((text, attr))
+                current_width += len(text)
+                return
+            
+            # Fragment doesn't fit - need to split
+            remaining_space = width - current_width
+            
+            if remaining_space > 0:
+                # Add what fits to current line
+                fragment = text[:remaining_space]
+                current_line.append((fragment, attr))
+                current_width += remaining_space
+                flush_line()
+                
+                # Continue with remainder
+                text = text[remaining_space:]
+            
+            # Now process the rest of the fragment on new lines
+            while text:
+                # Take as much as fits
+                chunk = text[:width]
+                current_line.append((chunk, attr))
+                current_width = len(chunk)
+                flush_line()
+                text = text[width:]
+        
+        # Process all segments, deduplicating near-duplicates
+        # (e.g., "CHAPTER ONE" appearing twice with only blank lines between)
+        last_nonblank_text = None
+        last_nonblank_attr = None
+        last_blank_count = 0  # Track consecutive blank lines
+        
+        for seg in segments:
+            text = seg.text
+            attr = self.styles_to_curses_attr(seg.styles)
+            
+            # Normalize text for comparison (strip whitespace)
+            text_normalized = text.strip()
+            
+            # Skip duplicates of last non-blank segment (handles cases like:
+            # "CHAPTER ONE" -> blank lines -> "CHAPTER ONE" again)
+            if text_normalized and text_normalized == last_nonblank_text and attr == last_nonblank_attr:
+                continue
+            
+            # Update last non-blank tracker
+            if text_normalized:
+                last_nonblank_text = text_normalized
+                last_nonblank_attr = attr
+                last_blank_count = 0  # Reset blank counter on non-blank
+            else:
+                # Handle whitespace-only segments (paragraph breaks)
+                # Limit consecutive blank lines to 1 (avoid excessive spacing)
+                if last_blank_count >= 1:
+                    continue  # Skip additional consecutive blanks
+                last_blank_count += 1
+                
+                # Flush any pending content, add blank line
+                if current_line or current_width > 0:
+                    flush_line()
+                # Add empty line as a line with single empty fragment
+                lines.append([("", curses.A_NORMAL)])
+            if text_normalized:
+                add_fragment(text, attr)
+        
+        # Flush any remaining content
+        flush_line()
+        
+        return lines
+
+    def _get_styled_pages(self, chapter_index: int) -> List[List[List[Tuple[str, int]]]]:
+        """Get pages as list of lines, where each line is list of (text, attr) fragments.
+        
+        Wraps text properly while preserving CSS style boundaries. Each line can have
+        multiple fragments with different styles (e.g., bold mixed with normal text).
+        
+        Returns:
+            List of pages, where each page is a list of lines,
+            and each line is a list of (fragment_text, curses_attr) tuples.
         """
         h, w = self.stdscr.getmaxyx()
-        cache_key = (chapter_index, h, w)
+        cache_key = (chapter_index, w, self.show_header)
         
         if cache_key in self.pages_attrs_cache:
             return self.pages_attrs_cache[cache_key]
@@ -1404,38 +1521,17 @@ class ReaderUI:
         body_h = max(3, h - (2 if self.show_header else 1))
         body_w = max(20, w - 1)
         
-        # Get the plain text chapter
-        chapter_text = self.book.chapters[chapter_index]
         segments = self.book.chapter_segments[chapter_index]
         
-        # Wrap using the proven method
-        lines = self._wrap_text(chapter_text, body_w)
-        
-        # Build style map from segments: character position -> curses attribute
-        if segments:
-            style_ranges: List[Tuple[int, int, int]] = []
-            char_pos = 0
-            for seg in segments:
-                attr = self.styles_to_curses_attr(seg.styles)
-                style_ranges.append((char_pos, char_pos + len(seg.text), attr))
-                char_pos += len(seg.text)
-            
-            # Apply styles to each line based on character position
-            styled_lines = []
-            char_offset = 0
-            for line in lines:
-                line_len = len(line)
-                # Find the first style that applies to this line
-                line_attr = curses.A_NORMAL
-                for start, end, attr in style_ranges:
-                    if start <= char_offset < end:
-                        line_attr = attr
-                        break
-                styled_lines.append((line, line_attr))
-                char_offset += line_len
+        if not segments:
+            # Fallback to plain text if no styled segments available
+            chapter_text = self.book.chapters[chapter_index]
+            lines = self._wrap_text(chapter_text, body_w)
+            # Convert to fragment format: each line is single fragment with normal attr
+            styled_lines = [[(line, curses.A_NORMAL)] for line in lines]
         else:
-            # Fallback to plain text if no segments
-            styled_lines = [(line, curses.A_NORMAL) for line in lines]
+            # NEW: Wrap segments directly, preserving style boundaries
+            styled_lines = self._wrap_segments_with_styles(segments, body_w)
         
         # Split into pages
         pages = []
@@ -1450,9 +1546,15 @@ class ReaderUI:
         """Get pages as plain text (without styling attributes).
         
         Used by navigation methods that only need page count, not rendering.
+        Converts fragment-based lines back to plain strings by joining fragments.
         """
         styled_pages = self._get_styled_pages(chapter_index)
-        return [[line for line, _ in page] for page in styled_pages]
+        # Join all fragments in each line to get plain text
+        plain_pages = []
+        for page in styled_pages:
+            plain_page = [''.join(fragment_text for fragment_text, _ in line) for line in page]
+            plain_pages.append(plain_page)
+        return plain_pages
 
     def draw(self):
         self.stdscr.erase()
@@ -1462,7 +1564,7 @@ class ReaderUI:
         
         # Get styled pages directly
         styled_pages = self._get_styled_pages(self.chapter_index)
-        page = styled_pages[self.page_index] if styled_pages else [("", curses.A_NORMAL)]
+        page = styled_pages[self.page_index] if styled_pages else [[("", curses.A_NORMAL)]]
         
         body_start = 1 if self.show_header else 0
         if self.show_header:
@@ -1473,14 +1575,24 @@ class ReaderUI:
             except curses.error:
                 pass  # Terminal too narrow - skip header
         
-        # Render each line with its computed attributes
-        for idx, (line, attr) in enumerate(page, start=body_start):
+        # Render each line with its fragments (each fragment can have different style)
+        for idx, line_fragments in enumerate(page, start=body_start):
             if idx >= h - 1:
                 break
-            try:
-                self.stdscr.addnstr(idx, 0, line, w - 1, attr)
-            except curses.error:
-                pass  # Terminal too narrow - skip this line
+            
+            # Render all fragments in this line sequentially
+            x = 0
+            for fragment_text, attr in line_fragments:
+                if x >= w - 1:
+                    break
+                try:
+                    # Add this fragment at current position
+                    remaining_width = w - 1 - x
+                    self.stdscr.addnstr(idx, x, fragment_text, remaining_width, attr)
+                    x += len(fragment_text)
+                except curses.error:
+                    # Terminal too narrow for remaining fragments
+                    break
         
         # Get overall book progress
         current_page, total_pages = self.get_overall_progress()
