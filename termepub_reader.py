@@ -162,12 +162,12 @@ def parse_inline_style(style_attr: str) -> dict:
 def hex_to_16_color(hex_color: str) -> Optional[int]:
     """Convert a hex color to the nearest 16-color ANSI palette.
     
-    Maps hex colors (e.g., '#ff0000', 'rgb(255,0,0)') to curses.COLOR_* constants.
-    This is a helper for future color rendering - currently not used in rendering
-    as dynamic color pair management is not yet implemented.
+    Maps hex colors (e.g., '#ff0000', 'rgb(255,0,0)'), named colors (e.g., 'red'),
+    to curses.COLOR_* constants.
     
     Args:
-        hex_color: Color in hex format (#rrggbb, #rgb, rrggbb) or rgb(r,g,b).
+        hex_color: Color in hex format (#rrggbb, #rgb, rrggbb), rgb(r,g,b),
+                   or a CSS named color (e.g., 'red', 'blue', 'purple').
     
     Returns:
         ANSI color index (0-15) for the closest matching color, or None if
@@ -177,11 +177,39 @@ def hex_to_16_color(hex_color: str) -> Optional[int]:
         Uses Euclidean distance in RGB space to find the closest color.
         The 16-color palette includes standard colors plus bright variants.
     """
-    hex_color = hex_color.strip()
+    hex_color = hex_color.strip().lower()
     
+    # CSS named colors mapping (common ones)
+    named_colors = {
+        'black': (0, 0, 0),
+        'white': (255, 255, 255),
+        'red': (255, 0, 0),
+        'green': (0, 128, 0),
+        'blue': (0, 0, 255),
+        'yellow': (255, 255, 0),
+        'cyan': (0, 255, 255),
+        'magenta': (255, 0, 255),
+        'purple': (128, 0, 128),
+        'orange': (255, 165, 0),
+        'gray': (128, 128, 128),
+        'grey': (128, 128, 128),
+        'silver': (192, 192, 192),
+        'pink': (255, 192, 203),
+        'brown': (165, 42, 42),
+        'navy': (0, 0, 128),
+        'teal': (0, 128, 128),
+        'olive': (128, 128, 0),
+        'maroon': (128, 0, 0),
+        'lime': (0, 255, 0),
+        'aqua': (0, 255, 255),
+        'fuchsia': (255, 0, 255),
+    }
+    
+    # Check if it's a named color
+    if hex_color in named_colors:
+        r, g, b = named_colors[hex_color]
     # Handle rgb() format
-    rgb_match = re.search(r'rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', hex_color)
-    if rgb_match:
+    elif rgb_match := re.search(r'rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', hex_color):
         r, g, b = int(rgb_match.group(1)), int(rgb_match.group(2)), int(rgb_match.group(3))
     else:
         # Handle hex format (#rrggbb, #rgb, or rrggbb)
@@ -1135,6 +1163,8 @@ class ReaderUI:
         except curses.error:
             self.has_colors = False
         self.apply_theme()
+        # Clear styled pages cache so colors are re-computed
+        self.pages_attrs_cache.clear()
 
     def apply_theme(self):
         if not self.has_colors:
@@ -1183,11 +1213,13 @@ class ReaderUI:
         if 'color' in css_styles and self.has_colors:
             color_idx = hex_to_16_color(css_styles['color'])
             if color_idx is not None:
+                # Use theme's background color (black for dark mode, white for light mode)
+                bg_color = curses.COLOR_WHITE if self.theme == "light" else curses.COLOR_BLACK
+                
                 # Allocate a new color pair if we haven't seen this color before
                 if color_idx not in self.color_pair_cache:
                     try:
-                        # Background: -1 means use default terminal background
-                        curses.init_pair(self.next_color_pair, color_idx, -1)
+                        curses.init_pair(self.next_color_pair, color_idx, bg_color)
                         self.color_pair_cache[color_idx] = self.next_color_pair
                         self.next_color_pair += 1
                         # Safety: limit to 256 pairs (most terminals support this)
@@ -1206,6 +1238,9 @@ class ReaderUI:
 
     def toggle_theme(self):
         self.theme = "light" if self.theme == "dark" else "dark"
+        # Clear color cache so colors are re-rendered with correct background
+        self.color_pair_cache.clear()
+        self.next_color_pair = 8
         self.store.set_theme(self.theme)
         self.store.save()
         self.pages_cache.clear()

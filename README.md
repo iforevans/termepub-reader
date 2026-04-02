@@ -2,7 +2,7 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.8 (2026-03-30)
+**Version:** 0.4.9 (2026-04-02)
 
 ## Features
 
@@ -55,7 +55,7 @@ termepub_reader.py [book.epub] [--bookmark] [--no-css] [--version]
    ./termepub_reader.py
    ```
 
-## CSS Styling Support (v0.4.2)
+## CSS Styling Support (v0.4.2+)
 
 The reader now supports inline CSS styling from EPUB files:
 
@@ -64,10 +64,11 @@ The reader now supports inline CSS styling from EPUB files:
 - **Underline:** `<u>`, `text-decoration: underline`
 - **Italic:** `<i>`, `<em>`, `font-style: italic` (terminal-dependent)
 - **Line-through:** `<s>`, `<strike>`, `<del>` (terminal-dependent)
-
-**Future work:**
-- Color support (`color: #rrggbb`, `color: rgb(r,g,b)`)
-- More text decorations and font properties
+- **Colors (v0.4.9):** 
+  - Hex: `color: #rrggbb` or `color: #rgb`
+  - RGB: `color: rgb(r,g,b)`
+  - Named: `color: red`, `blue`, `green`, `yellow`, `purple`, `cyan`, `magenta`, `orange`, `pink`, `brown`, `navy`, `teal`, `olive`, `maroon`, `lime`, `aqua`, `fuchsia`, `black`, `white`
+  - Colors adapt to current theme (dark/light mode)
 
 ## Requirements
 
@@ -93,6 +94,25 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 ---
 
 ## Recent Changes
+
+### v0.4.9 (2026-04-02) - CSS Color Support
+
+**Features:**
+- **Inline color rendering:** EPUBs can now display colored text
+- **Named CSS colors:** 19 common colors (`red`, `blue`, `green`, etc.)
+- **Hex colors:** `#rrggbb` and `#rgb` formats
+- **RGB colors:** `rgb(r,g,b)` format
+- **Theme-aware:** Colors automatically adapt to dark/light mode
+- **Dynamic color pairs:** Efficient curses color pair allocation with caching
+
+**Bug Fixes:**
+- Fixed cache invalidation on theme toggle (colors now re-render correctly)
+- Fixed cache invalidation on initial load (colors render correctly from start)
+
+**Technical:**
+- Added `hex_to_16_color()` function to map CSS colors to curses color indices
+- Color pair cache cleared on theme toggle and initial setup
+- Background color matches current theme (black for dark, white for light)
 
 ### v0.4.8 (2026-03-30) - Style Boundary Fix
 
