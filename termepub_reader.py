@@ -8,8 +8,9 @@ Features:
 - Chapter navigation, bookmarks, file picker with live search
 - State persistence across sessions
 - Proper word wrapping (no mid-word breaks)
+- Justified text mode toggle (x key)
 
-Version: 0.4.10
+Version: 0.4.11
 """
 import curses
 import hashlib
@@ -26,14 +27,14 @@ from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-__version__ = "0.4.10"
+__version__ = "0.4.11"
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "termepub")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
 
 # Footer format string for status bar display
 FOOTER_FORMAT = (
-    "C {}/{} P {}/{} {}% | L/R page | U/D chap | t TOC | / find | Bmark | Open | Mode | Head | Quit |"
+    "C {}/{} P {}/{} {}% | L/R page | U/D chap | t TOC | / find | Bmark | Open | Mode | Head | j{justify} | Quit |"
 )
 
 
@@ -761,6 +762,13 @@ class StateStore:
         global_entry = self.data.setdefault("_global", {})
         global_entry["show_header"] = bool(show_header)
 
+    def get_justify_text(self) -> bool:
+        return bool(self.data.get("_global", {}).get("justify_text", False))
+
+    def set_justify_text(self, justify_text: bool):
+        global_entry = self.data.setdefault("_global", {})
+        global_entry["justify_text"] = bool(justify_text)
+
     def get_last_book_path(self) -> Optional[str]:
         path = self.data.get("_global", {}).get("last_book_path")
         if isinstance(path, str) and path:
@@ -1092,6 +1100,7 @@ class ReaderUI:
         self.running = True
         self.theme = self.store.get_theme()
         self.show_header = self.store.get_show_header()
+        self.justify_text = self.store.get_justify_text()
         self.has_colors = False
         self.header_attr = curses.A_REVERSE
         self.footer_attr = curses.A_REVERSE
@@ -1269,6 +1278,16 @@ class ReaderUI:
         self.pages_attrs_cache.clear()
         self.show_info_popup("Heading", f"Heading style: {style}")
 
+    def toggle_justify(self):
+        """Toggle justified text mode."""
+        self.justify_text = not self.justify_text
+        self.store.set_justify_text(self.justify_text)
+        self.store.save()
+        self.pages_cache.clear()
+        self.pages_attrs_cache.clear()
+        mode = "justified" if self.justify_text else "left-aligned"
+        self.show_info_popup("Text", f"Text alignment: {mode}")
+
     def get_overall_progress(self) -> Tuple[int, int]:
         """Return (current_page, total_pages) for the entire book."""
         # Count pages in all chapters before current one
@@ -1444,16 +1463,60 @@ class ReaderUI:
             out.pop()
         return out
 
+    def _justify_line(self, words: List[Tuple[str, int]], target_width: int) -> List[Tuple[str, int]]:
+        """Justify a line by distributing extra space between words.
+        
+        Args:
+            words: List of (word_text, attr) tuples
+            target_width: Target line width
+            
+        Returns:
+            List of (fragment_text, attr) tuples with extra spaces distributed
+        """
+        if not words:
+            return []
+        
+        # Calculate current width (sum of all word lengths)
+        total_word_width = sum(len(w) for w, _ in words)
+        
+        # Count number of gaps between words (excluding space fragments)
+        actual_words = [(w, a) for w, a in words if w != " "]
+        num_gaps = len(actual_words) - 1
+        
+        if num_gaps <= 0:
+            # Single word or empty - can't justify, return as-is
+            return words
+        
+        # Calculate extra space to distribute
+        extra_space = target_width - total_word_width
+        
+        # Distribute extra space evenly across gaps
+        space_per_gap = extra_space // num_gaps
+        extra_spaces = extra_space % num_gaps  # Remaining spaces to distribute left-to-right
+        
+        # Build justified line
+        justified: List[Tuple[str, int]] = []
+        for i, (word, attr) in enumerate(actual_words):
+            justified.append((word, attr))
+            if i < num_gaps:
+                # Add space after word (except last)
+                spaces = " " * (1 + space_per_gap + (1 if i < extra_spaces else 0))
+                justified.append((spaces, attr))
+        
+        return justified
+
     def _wrap_segments_with_styles(self, segments: List[StyledSegment], width: int) -> List[List[Tuple[str, int]]]:
         """Wrap styled segments while preserving style boundaries.
         
         Returns list of lines, where each line is a list of (text_fragment, curses_attr) tuples.
         This allows multiple styles per line (e.g., "Hello [bold]world[/bold]").
         
+        Supports left-aligned and justified text modes.
+        
         Strategy: Greedy line building with segment splitting.
         - Accumulate segment fragments until line would exceed width
-        - If current segment would overflow, split it at width boundary
-        - Keep the remainder for next line
+        - If current segment would overflow, split it at word boundary
+        - For justified mode: distribute extra space between words
         - Each fragment retains its original style attribute
         
         Args:
@@ -1467,76 +1530,64 @@ class ReaderUI:
             return []
         
         lines: List[List[Tuple[str, int]]] = []
-        current_line: List[Tuple[str, int]] = []
-        current_width = 0
+        current_line_words: List[Tuple[str, int]] = []  # List of (word, attr) tuples
+        current_line_width = 0  # Width without extra spaces (just words + single spaces)
         
-        def flush_line():
-            """Commit current line and reset for next line."""
-            nonlocal current_line, current_width
-            if current_line:
-                lines.append(current_line)
-            current_line = []
-            current_width = 0
-        
-        def add_fragment(text: str, attr: int):
-            """Add a text fragment to current line, splitting if needed."""
-            nonlocal current_line, current_width
+        def flush_line(is_last_line: bool = False):
+            """Commit current line with justification if enabled, and reset for next line."""
+            nonlocal current_line_words, current_line_width
             
-            if not text:
-                return
-                
-            # Simple case: fragment fits on current line
-            if current_width + len(text) <= width:
-                current_line.append((text, attr))
-                current_width += len(text)
+            if not current_line_words:
+                current_line_words = []
+                current_line_width = 0
                 return
             
-            # Fragment doesn't fit - need to split at word boundary
-            remaining_space = width - current_width
+            # Check if this is the last line of a paragraph (no justification for last line)
+            if self.justify_text and not is_last_line:
+                # Justified mode: distribute extra space between words
+                justified_line = self._justify_line(current_line_words, width)
+                lines.append(justified_line)
+            else:
+                # Left-aligned: just join words with single spaces
+                lines.append(current_line_words)
             
-            if remaining_space > 0:
-                # Find the last space within remaining_space to split at word boundary
-                split_point = remaining_space
-                # Look for a space to break at (don't split words in the middle)
-                last_space = text.rfind(' ', 0, remaining_space)
-                if last_space > 0:
-                    split_point = last_space
-                
-                # Add what fits to current line
-                fragment = text[:split_point].rstrip()
-                current_line.append((fragment, attr))
-                current_width += len(fragment)
-                flush_line()
-                
-                # Continue with remainder (skip the space we broke at)
-                text = text[split_point:].lstrip()
+            current_line_words = []
+            current_line_width = 0
+        
+        def add_word(word: str, attr: int):
+            """Add a word to current line, flushing if needed."""
+            nonlocal current_line_words, current_line_width
             
-            # Now process the rest of the fragment on new lines
-            while text:
-                if len(text) <= width:
-                    # Rest fits on one line
-                    current_line.append((text, attr))
-                    current_width = len(text)
-                    flush_line()
-                    break
+            if not word:
+                return
+            
+            word_len = len(word)
+            space_len = 1 if current_line_words else 0  # Space before word (not before first word)
+            new_width = current_line_width + space_len + word_len
+            
+            # Check if word fits on current line
+            if new_width <= width:
+                # Add space separator if not first word
+                if current_line_words:
+                    current_line_words.append((" ", attr))
+                current_line_words.append((word, attr))
+                current_line_width = new_width
+            else:
+                # Word doesn't fit - flush current line first
+                flush_line(is_last_line=False)
                 
-                # Find word boundary for long lines
-                split_point = width
-                last_space = text.rfind(' ', 0, width)
-                if last_space > 0:
-                    split_point = last_space
-                
-                chunk = text[:split_point].rstrip()
-                if not chunk:
-                    # No space found - force break (very long word)
-                    chunk = text[:width]
-                    text = text[width:]
+                # Now add word to new line
+                if word_len > width:
+                    # Very long word - split it
+                    while word:
+                        chunk = word[:width]
+                        word = word[width:]
+                        current_line_words.append((chunk, attr))
+                        current_line_width = len(chunk)
+                        flush_line(is_last_line=False)
                 else:
-                    text = text[split_point:].lstrip()
-                
-                current_line.append((chunk, attr))
-                current_width = len(chunk)
-                flush_line()
+                    current_line_words.append((word, attr))
+                    current_line_width = word_len
         
         # Process all segments, deduplicating near-duplicates
         # (e.g., "CHAPTER ONE" appearing twice with only blank lines between)
@@ -1569,15 +1620,20 @@ class ReaderUI:
                 last_blank_count += 1
                 
                 # Flush any pending content, add blank line
-                if current_line or current_width > 0:
-                    flush_line()
+                if current_line_words:
+                    flush_line(is_last_line=True)  # Last line of paragraph - don't justify
                 # Add empty line as a line with single empty fragment
                 lines.append([("", curses.A_NORMAL)])
+            
             if text_normalized:
-                add_fragment(text, attr)
+                # Split text into words and add them one by one
+                words = text_normalized.split()
+                for i, word in enumerate(words):
+                    # Add space between words (handled by add_word)
+                    add_word(word, attr)
         
-        # Flush any remaining content
-        flush_line()
+        # Flush any remaining content (as last line - no justification)
+        flush_line(is_last_line=True)
         
         return lines
 
@@ -1678,12 +1734,14 @@ class ReaderUI:
         progress_pct = int((current_page / total_pages) * 100) if total_pages > 0 else 0
         
         # Compact footer for smaller screens
+        justify_status = " ON" if self.justify_text else " OFF"
         footer = FOOTER_FORMAT.format(
             self.chapter_index + 1,
             len(self.book.chapters),
             current_page,
             total_pages,
             progress_pct,
+            justify=justify_status,
         )
         
         try:
@@ -1724,10 +1782,6 @@ class ReaderUI:
             self.next_page()
         elif ch in (curses.KEY_PPAGE, 339):
             self.prev_page()
-        elif ch in (ord("n"), ord("N")):
-            self.next_chapter()
-        elif ch in (ord("p"), ord("P")):
-            self.prev_chapter()
         elif ch in (ord("t"), ord("T")):
             self.open_toc()
         elif ch == ord("/"):
@@ -1742,6 +1796,8 @@ class ReaderUI:
             self.toggle_header()
         elif ch in (ord("g"), ord("G")):
             self.toggle_heading_style()
+        elif ch in (ord("j"), ord("J")):
+            self.toggle_justify()
         elif ch == curses.KEY_RESIZE:
             self.pages_cache.clear()
             self._ensure_page_in_range()

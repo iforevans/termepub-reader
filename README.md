@@ -2,31 +2,34 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.10 (2026-04-04)
+**Version:** 0.4.11 (2026-04-04)
 
 ## Features
 
 - **File Picker:** Browse and open EPUB files with advanced navigation
-- **Navigation:** Page/chapter forward/back (arrow keys, j/k, n/p)
+- **Navigation:** Page/chapter forward/back (arrow keys)
 - **Table of Contents:** Interactive TOC with visual selection indicator (=>) - *v0.4.4*
 - **Search:** Full-text search with chapter highlighting
 - **Bookmarks:** Save and restore reading position
 - **Themes:** Dark/light mode toggle
 - **Progress Tracking:** Overall book pagination with percentage
-- **CSS Styling:** Inline CSS support (bold, underline, italic) - *v0.4.2*
+- **CSS Styling:** Inline CSS support (bold, underline, italic, colors) - *v0.4.2*
+- **Justified Text:** Toggle justified text alignment (j key) - *v0.4.11*
+- **Proper Word Wrapping:** No mid-word breaks - *v0.4.10*
 
 ## Controls
 
 | Key | Action |
 |-----|--------|
-| `←/→` or `j/k` | Page navigation |
-| `↑/↓` or `n/p` | Chapter navigation |
+| `←/→` | Page navigation |
+| `↑/↓` | Chapter navigation |
 | `t` | Table of contents |
 | `/` | Search |
 | `b` | Bookmark |
 | `o` | Open book (file picker) |
 | `s` | In picker - start live search/filter |
 | `j` | In picker - jump to letter |
+| `j` | In reader - toggle justified text |
 | `m` | Toggle theme |
 | `h` | Toggle header |
 | `g` | Toggle heading style (bold/reverse) |
@@ -106,7 +109,23 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 - Uses `rfind(' ')` to locate word boundaries before line breaks
 - Strips trailing/leading whitespace at split points for clean wrapping
 
-### v0.4.9 (2026-04-02) - CSS Color Support
+### v0.4.11 (2026-04-04) - Justified Text
+
+**Features:**
+- Toggle justified text alignment with `j` key (shows "j ON" / "j OFF" in footer)
+- Justification distributes extra space evenly between words
+- Last line of paragraphs remains left-aligned (standard typesetting)
+- Justification preference persists across sessions
+- Removed redundant `j/k` and `n/p` navigation shortcuts (cursor keys only)
+
+### v0.4.10 (2026-04-04) - Word Wrap Fix
+
+**Bug Fixes:**
+- Fixed word wrapping to respect word boundaries (no mid-word breaks)
+- Properly splits at last space before line width limit
+- Handles extremely long words with forced breaks
+
+### v0.4.9 (2026-04-03) - CSS Colors
 
 **Features:**
 - **Inline color rendering:** EPUBs can now display colored text
