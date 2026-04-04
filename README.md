@@ -2,7 +2,7 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.11 (2026-04-04)
+**Version:** 0.4.12 (2026-04-04)
 
 ## Features
 
@@ -16,6 +16,7 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 - **CSS Styling:** Inline CSS support (bold, underline, italic, colors) - *v0.4.2*
 - **Justified Text:** Toggle justified text alignment (j key) - *v0.4.11*
 - **Proper Word Wrapping:** No mid-word breaks - *v0.4.10*
+- **Dictionary Lookup:** Built-in dictionary with 160K words (d key) - *v0.4.12*
 
 ## Controls
 
@@ -30,6 +31,7 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 | `s` | In picker - start live search/filter |
 | `j` | In picker - jump to letter |
 | `j` | In reader - toggle justified text |
+| `d` | Dictionary lookup (press on highlighted word) - *v0.4.12* |
 | `m` | Toggle theme |
 | `h` | Toggle header |
 | `g` | Toggle heading style (bold/reverse) |
@@ -77,6 +79,7 @@ The reader now supports inline CSS styling from EPUB files:
 
 - Python 3.9+
 - No external dependencies (uses only stdlib: `zipfile`, `xml.etree`, `html.parser`, `curses`)
+- Dictionary file (`ecdict_index.json`) included in repository (21MB)
 
 ## State
 
@@ -98,7 +101,26 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 
 ## Recent Changes
 
-### v0.4.10 (2026-04-04) - Word Wrapping Fix
+### v0.4.12 (2026-04-04) - Dictionary Lookup
+
+**Features:**
+- **Built-in dictionary:** Press `d` on highlighted word to look up definitions
+- **ECDICT dictionary:** 160,000+ words with modern English definitions
+- **Smart popup:** Definitions display with proper newlines and formatting
+- **Auto-sizing:** Popup adapts to content width (50-90% of screen)
+- **Offline-first:** Dictionary file included in repository (21MB)
+
+**Dictionary Source:**
+- Uses ECDICT (English-Chinese Dictionary with English definitions)
+- Modern definitions from contemporary sources
+- Dictionary stored alongside reader code (`ecdict_index.json`)
+
+**Technical:**
+- JSON index loaded once, cached in memory
+- Preserves paragraph breaks and formatting from definitions
+- Popup handles long words by wrapping at word boundaries
+
+### v0.4.11 (2026-04-04) - Justified Text
 
 **Bug Fixes:**
 - Fixed word wrapping to respect word boundaries (no more mid-word breaks)
