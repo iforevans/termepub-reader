@@ -95,6 +95,17 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 
 ## Recent Changes
 
+### v0.4.10 (2026-04-04) - Word Wrapping Fix
+
+**Bug Fixes:**
+- Fixed word wrapping to respect word boundaries (no more mid-word breaks)
+- `_wrap_segments_with_styles` now finds last space before split point
+- Falls back to force-break only for extremely long words with no spaces
+
+**Technical:**
+- Uses `rfind(' ')` to locate word boundaries before line breaks
+- Strips trailing/leading whitespace at split points for clean wrapping
+
 ### v0.4.9 (2026-04-02) - CSS Color Support
 
 **Features:**
