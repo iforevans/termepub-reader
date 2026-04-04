@@ -27,6 +27,9 @@ Thumbs.db
 ~/.config/termepub/
 *.bak
 
+# Dictionary data (large file, not for git)
+ecdict_index.json
+
 # Test files
 *.epub
 test_epub/

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.9
 """
 termepub_reader.py - Terminal-based EPUB reader with inline CSS styling support.
 
@@ -21,6 +21,7 @@ import re
 import sys
 import textwrap
 import unicodedata
+import urllib.request
 import zipfile
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -29,12 +30,21 @@ import xml.etree.ElementTree as ET
 
 __version__ = "0.4.11"
 
+# Dictionary configuration
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DICT_DIR = os.path.join(os.path.expanduser("~"), ".config", "termepub")
+WORD_LIST_PATH = os.path.join(DICT_DIR, "words.txt")
+EC_DICT_INDEX_PATH = os.path.join(SCRIPT_DIR, "ecdict_index.json")
+GCIDE_INDEX_PATH = os.path.join(DICT_DIR, "gcide_index.json")
+_ecdict_index = None
+_gcide_index = None
+
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "termepub")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
 
 # Footer format string for status bar display
 FOOTER_FORMAT = (
-    "C {}/{} P {}/{} {}% | L/R page | U/D chap | t TOC | / find | Bmark | Open | Mode | Head | j{justify} | Quit |"
+    "C {}/{} P {}/{} {}% | L/R page | U/D chap | t TOC | / find | Bmark | Open | Mode | Head | j{justify} | d dict | Quit |"
 )
 
 
@@ -776,6 +786,129 @@ class StateStore:
         return None
 
 
+def ensure_dictionary() -> bool:
+    """Ensure word list dictionary is downloaded."""
+    os.makedirs(DICT_DIR, exist_ok=True)
+    if os.path.exists(WORD_LIST_PATH):
+        return True
+    
+    try:
+        url = "https://raw.githubusercontent.com/dwyl/english-words/master/words.txt"
+        with urllib.request.urlopen(url, timeout=30) as response:
+            words = response.read().decode('utf-8')
+        with open(WORD_LIST_PATH, 'w') as f:
+            f.write(words)
+        return True
+    except Exception:
+        return False
+
+
+def load_ecdict_index():
+    """Load ECDICT dictionary index from JSON file."""
+    global _ecdict_index
+    if _ecdict_index is not None:
+        return _ecdict_index
+    
+    if not os.path.exists(EC_DICT_INDEX_PATH):
+        return None
+    
+    try:
+        with open(EC_DICT_INDEX_PATH, 'r') as f:
+            _ecdict_index = json.load(f)
+        return _ecdict_index
+    except Exception:
+        return None
+
+
+def load_gcide_index():
+    """Load GCIDE dictionary index from JSON file."""
+    global _gcide_index
+    if _gcide_index is not None:
+        return _gcide_index
+    
+    if not os.path.exists(GCIDE_INDEX_PATH):
+        return None
+    
+    try:
+        with open(GCIDE_INDEX_PATH, 'r') as f:
+            _gcide_index = json.load(f)
+        return _gcide_index
+    except Exception:
+        return None
+
+
+def lookup_word(word: str) -> str:
+    """
+    Lookup a word in the dictionary.
+    Returns a formatted message with definition or suggestions.
+    """
+    word_lower = word.lower().strip()
+    
+    # First try ECDICT for modern definitions
+    ecdict = load_ecdict_index()
+    if ecdict and word_lower in ecdict:
+        entry = ecdict[word_lower]
+        headword = entry.get("headword", word)
+        definition = entry.get("def", "")
+        return f"**{headword}**\n\n{definition}"
+    
+    # Try without punctuation
+    clean_word = re.sub(r'[^\w]', '', word_lower)
+    if ecdict and clean_word in ecdict:
+        entry = ecdict[clean_word]
+        definition = entry.get("def", "")
+        return f"**{clean_word}**\n\n{definition}"
+    
+    # Fallback to GCIDE for full definitions
+    gcide = load_gcide_index()
+    if gcide and word_lower in gcide:
+        entry = gcide[word_lower]
+        headword = entry.get("headword", word)
+        definition = entry.get("def", "")
+        return f"**{headword}**\n\n{definition}"
+    
+    # Fallback to word list for suggestions
+    if not os.path.exists(WORD_LIST_PATH):
+        return f"✗ '{word}' not found\n(Dictionary not available)"
+    
+    try:
+        with open(WORD_LIST_PATH, 'r') as f:
+            lines = f.readlines()
+    except Exception:
+        return f"✗ '{word}' not found\n(Error reading dictionary)"
+    
+    # Check if word exists
+    for line in lines:
+        if line.strip().lower() == word_lower:
+            return f"✓ '{word}' found\n(No definition available)"
+    
+    # Find similar words
+    similar = []
+    for line in lines:
+        line_word = line.strip().lower()
+        len_diff = abs(len(line_word) - len(word_lower))
+        
+        if len_diff <= 1:
+            if len_diff == 0:
+                diffs = sum(c1 != c2 for c1, c2 in zip(word_lower, line_word))
+                if 1 <= diffs <= 2:
+                    similar.append((diffs, line_word))
+            else:
+                shorter, longer = (word_lower, line_word) if len(word_lower) < len(line_word) else (line_word, word_lower)
+                for i in range(len(longer)):
+                    if longer[:i] + longer[i+1:] == shorter:
+                        similar.append((1, line_word))
+                        break
+    
+    similar.sort()
+    top_similar = [w for _, w in similar[:5]]
+    
+    if top_similar:
+        return f"✗ '{word}' not found\nDid you mean: {', '.join(top_similar)}?"
+    else:
+        return f"✗ '{word}' not found in dictionary"
+
+
 class FilePicker:
     def __init__(self, stdscr, start_path: Optional[str] = None):
         self.stdscr = stdscr
@@ -1288,6 +1421,59 @@ class ReaderUI:
         mode = "justified" if self.justify_text else "left-aligned"
         self.show_info_popup("Text", f"Text alignment: {mode}")
 
+    def dictionary_lookup(self):
+        """Prompt for a word and show dictionary info."""
+        # Get current word under cursor or prompt
+        self.stdscr.keypad(False)
+        curses.echo()
+        curses.curs_set(1)
+        
+        try:
+            # Show prompt
+            h, w = self.stdscr.getmaxyx()
+            prompt = "Word to lookup: "
+            self.stdscr.addstr(h - 2, 0, " " * (w - 1))
+            self.stdscr.addstr(h - 2, 0, prompt)
+            self.stdscr.refresh()
+            
+            # Read input
+            word = ""
+            while True:
+                ch = self.stdscr.getch()
+                if ch == 27:  # Escape
+                    word = None
+                    break
+                elif ch in (10, 13):  # Enter
+                    break
+                elif ch == 127 or ch == 8:  # Backspace
+                    if word:
+                        word = word[:-1]
+                        self.stdscr.addstr(h - 2, 0, " " * (w - 1))
+                        self.stdscr.addstr(h - 2, 0, prompt + word)
+                        self.stdscr.refresh()
+                elif 32 <= ch <= 126:  # Printable
+                    word += chr(ch)
+                    self.stdscr.addstr(h - 2, 0, " " * (w - 1))
+                    self.stdscr.addstr(h - 2, 0, prompt + word)
+                    self.stdscr.refresh()
+        finally:
+            curses.noecho()
+            curses.curs_set(0)
+            self.stdscr.keypad(True)
+        
+        if word is None:
+            return  # Cancelled
+        
+        if not word.strip():
+            self.show_info_popup("Dictionary", "No word entered")
+            return
+        
+        # Lookup the word
+        result = lookup_word(word.strip())
+        
+        # Show result in a popup
+        self.show_info_popup("Dictionary", result)
+
     def get_overall_progress(self) -> Tuple[int, int]:
         """Return (current_page, total_pages) for the entire book."""
         # Count pages in all chapters before current one
@@ -1319,18 +1505,58 @@ class ReaderUI:
         h, w = self.stdscr.getmaxyx()
         
         # Calculate message dimensions (wrap to fit screen width minus padding)
-        max_msg_width = min(w - 6, 60)
-        lines = []
-        for word in message.split():
-            if not lines:
-                lines.append(word)
-            elif len(lines[-1]) + len(word) + 1 <= max_msg_width:
-                lines[-1] += " " + word
-            else:
-                lines.append(word)
+        max_msg_width = min(w - 8, 80)  # Wider popup
         
-        popup_width = min(max(len(max(lines, default="")), len(title)) + 4, w - 2)
-        popup_height = len(lines) + 4  # title + message + borders
+        # Wrap message, handling long words by breaking them
+        # First split on newlines to preserve paragraph breaks
+        paragraphs = message.split('\n')
+        lines = []
+        
+        for para in paragraphs:
+            for word in para.split():
+                # Break up very long words (e.g., definitions with no spaces)
+                if len(word) > max_msg_width:
+                    # Split word into chunks
+                    chunks = [word[i:i+max_msg_width] for i in range(0, len(word), max_msg_width)]
+                    for i, chunk in enumerate(chunks):
+                        if i > 0 and lines and len(lines[-1]) < max_msg_width:
+                            lines[-1] += " " + chunk
+                        else:
+                            lines.append(chunk)
+                elif not lines or not para.strip():
+                    lines.append(word)
+                elif len(lines[-1]) + len(word) + 1 <= max_msg_width:
+                    lines[-1] += " " + word
+                else:
+                    lines.append(word)
+            # Add empty line between paragraphs (if there's more content)
+            if para and paragraphs.index(para) < len(paragraphs) - 1 and any(p.strip() for p in paragraphs[paragraphs.index(para)+1:]):
+                if not lines or lines[-1]:  # Don't add if last line is already empty
+                    lines.append("")
+        
+         # Make popup larger - use 80% of screen if content is big
+        content_height = len(lines) + 4  # title + message + borders
+        
+        # Calculate optimal popup size - fit to content with reasonable limits
+        longest_line = max(len(line) for line in lines) if lines else 0
+        min_required_width = max(longest_line, len(title)) + 6  # +6 for padding and borders
+        
+        # Popup width: fit the content, but within reasonable bounds
+        # Minimum: fit content or 50% of screen, whichever is larger
+        # Maximum: 90% of screen
+        min_width = max(min_required_width, int(w * 0.5))
+        popup_width = min(min_width, int(w * 0.9))
+        
+        # Height: show all content if it fits, otherwise max 85% of screen
+        max_popup_height = int(h * 0.85)
+        popup_height = min(content_height, max_popup_height)
+        
+        # If content is taller than popup, we need scrolling
+        needs_scroll = len(lines) > (popup_height - 4)
+        if needs_scroll:
+            visible_lines = popup_height - 4
+            lines = lines[:visible_lines]  # Just show first part for now
+        
         start_y = (h - popup_height) // 2
         start_x = (w - popup_width) // 2
         
@@ -1368,18 +1594,27 @@ class ReaderUI:
             msg_start_y = start_y + 2
             for i, line in enumerate(lines):
                 msg_width = popup_width - 4
+                # Only truncate if line is actually longer than popup
+                display_line = line if len(line) <= msg_width else line[:msg_width]
                 # Fill the line with background color first
                 self.stdscr.attron(popup_attr)
                 self.stdscr.addnstr(msg_start_y + i, start_x + 2, " " * msg_width, msg_width)
                 # Then draw text on top
-                self.stdscr.addnstr(msg_start_y + i, start_x + 2, line[:msg_width], msg_width)
+                self.stdscr.addnstr(msg_start_y + i, start_x + 2, display_line, msg_width)
                 self.stdscr.attroff(popup_attr)
             
-            # Draw "Press any key" at bottom
-            prompt = "Press any key...".center(popup_width - 2)
-            self.stdscr.attron(popup_attr)
-            self.stdscr.addnstr(start_y + popup_height - 2, start_x + 1, prompt, popup_width - 2)
-            self.stdscr.attroff(popup_attr)
+            # Draw scroll indicator if needed
+            if needs_scroll:
+                scroll_msg = "▼ more ▼"
+                self.stdscr.attron(popup_attr)
+                self.stdscr.addnstr(start_y + popup_height - 2, start_x + (popup_width - len(scroll_msg)) // 2, scroll_msg)
+                self.stdscr.attroff(popup_attr)
+            else:
+                # Draw "Press any key" at bottom
+                prompt = "Press any key...".center(popup_width - 2)
+                self.stdscr.attron(popup_attr)
+                self.stdscr.addnstr(start_y + popup_height - 2, start_x + 1, prompt, popup_width - 2)
+                self.stdscr.attroff(popup_attr)
         except curses.error:
             pass  # Terminal too small - skip prompt text
         
@@ -1798,6 +2033,8 @@ class ReaderUI:
             self.toggle_heading_style()
         elif ch in (ord("j"), ord("J")):
             self.toggle_justify()
+        elif ch in (ord("d"), ord("D")):
+            self.dictionary_lookup()
         elif ch == curses.KEY_RESIZE:
             self.pages_cache.clear()
             self._ensure_page_in_range()
