@@ -2,7 +2,7 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.13 (2026-04-05)
+**Version:** 0.4.14 (2026-04-06)
 
 ## Features
 
