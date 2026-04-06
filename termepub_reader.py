@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.9
+#!/usr/local/bin/python3.9
 """
 termepub_reader.py - Terminal-based EPUB reader with inline CSS styling support.
 
@@ -1773,39 +1773,49 @@ class ReaderUI:
         self.status_message = ""
     
     def show_help(self):
-        """Display a help dialog with all key bindings."""
-        help_text = """
-READER MODE:
-  Left/Right  Previous / Next page
-  Up/Down     Previous / Next chapter
+        """Display a help dialog - split into small pages that fit small screens."""
+        help_page1 = """Page 1/3
+
+READER:
+  Left/Right  Prev/Next page
+  Up/Down     Prev/Next chapter
   t           Table of Contents
   /           Search
-  b           Set bookmark
+  b           Bookmark
   o           Open file
-  m           Toggle theme (light/dark)
-  H           Toggle header visibility
-  j           Toggle justified text
-  d           Dictionary (visual selection)
-  ?           Dictionary (type word)
-  h           Show this help
   q           Quit
 
-SELECTION MODE (press d):
-  Left/Right  Move selection
-  Enter       Lookup selected word
+Press any key..."""
+        
+        help_page2 = """Page 2/3
+
+MODES:
+  m           Toggle theme
+  H           Toggle header
+  j           Toggle justify
+  d           Dict (select)
+  ?           Dict (type)
+  h           Help
+
+Press any key..."""
+        
+        help_page3 = """Page 3/3
+
+TIPS:
+  --bookmark  Resume position
+  --no-css    Faster rendering
+
+SELECTION (d):
+  Arrows      Move
+  Enter       Lookup
   Esc         Cancel
 
-TOC MODE (press t):
-  Left/Right  Navigate chapters
-  Enter       Go to chapter
-  Esc         Cancel
-
-SEARCH MODE (press /):
-  Type        Enter search term
-  Enter       Search
-  Esc         Cancel
-"""
-        self.show_info_popup("Help (press any key to continue)", help_text.strip())
+Press any key..."""
+        
+        # Show each page
+        self.show_info_popup("Help", help_page1)
+        self.show_info_popup("Help", help_page2)
+        self.show_info_popup("Help", help_page3)
     
     def run(self):
         curses.curs_set(0)
@@ -2507,6 +2517,11 @@ def usage() -> str:
 
 
 def main(argv: List[str]) -> int:
+    # FIX: Set TERM if not set or invalid (for running directly on Gemini)
+    import os
+    if not os.environ.get('TERM') or os.environ.get('TERM') == 'dumb':
+        os.environ['TERM'] = 'xterm'
+    
     if len(argv) >= 2 and argv[1] == "--version":
         print(f"termepub-reader {__version__}")
         return 0
