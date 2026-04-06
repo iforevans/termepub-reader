@@ -29,7 +29,7 @@ from html.parser import HTMLParser
 from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 # Dictionary configuration
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,10 +41,8 @@ _ecdict_index = None
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "termepub")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
 
-# Footer format string for status bar display
-FOOTER_FORMAT = (
-    "C {}/{} P {}/{} {}% | L/R page | U/D chap | t TOC | / find | Bmark | Open | Mode | Head | j{justify} | d dict sel | ? dict | Quit |"
-)
+# Footer format string for status bar display (simplified - just position info)
+FOOTER_FORMAT = "C {}/{} P {}/{} {}%"
 FOOTER_FORMAT_SELECTION = (
     " SELECTION MODE - Arrow keys to navigate, Enter to lookup, Esc to cancel "
 )
@@ -1774,6 +1772,41 @@ class ReaderUI:
         # Clear status message after popup is dismissed
         self.status_message = ""
     
+    def show_help(self):
+        """Display a help dialog with all key bindings."""
+        help_text = """
+READER MODE:
+  ← / →    Previous / Next page
+  ↑ / ↓    Previous / Next chapter
+  t        Table of Contents
+  /        Search
+  b        Set bookmark
+  o        Open file
+  m        Toggle theme (light/dark)
+  H        Toggle header visibility
+  j        Toggle justified text
+  d        Dictionary (visual selection)
+  ?        Dictionary (type word)
+  h        Show this help
+  q        Quit
+
+SELECTION MODE (press d):
+  ← / →    Move selection
+  Enter    Lookup selected word
+  Esc      Cancel
+
+TOC MODE (press t):
+  ← / →    Navigate chapters
+  Enter    Go to chapter
+  Esc      Cancel
+
+SEARCH MODE (press /):
+  Type     Enter search term
+  Enter    Search
+  Esc      Cancel
+"""
+        self.show_info_popup("Help (press any key to continue)", help_text.strip())
+    
     def run(self):
         curses.curs_set(0)
         self.stdscr.keypad(True)
@@ -2195,15 +2228,13 @@ class ReaderUI:
         if self.in_selection_mode:
             footer = FOOTER_FORMAT_SELECTION
         else:
-            # Compact footer for smaller screens
-            justify_status = " ON" if self.justify_text else " OFF"
+            # Simplified footer - just position info
             footer = FOOTER_FORMAT.format(
                 self.chapter_index + 1,
                 len(self.book.chapters),
                 current_page,
                 total_pages,
                 progress_pct,
-                justify=justify_status,
             )
         
         try:
@@ -2273,7 +2304,9 @@ class ReaderUI:
             self.open_file_picker()
         elif ch in (ord("m"), ord("M")):
             self.toggle_theme()
-        elif ch in (ord("h"), ord("H")):
+        elif ch == ord("h"):
+            self.show_help()
+        elif ch == ord("H"):
             self.toggle_header()
         elif ch in (ord("g"), ord("G")):
             self.toggle_heading_style()

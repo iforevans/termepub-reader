@@ -2,7 +2,7 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.5.0 (2026-04-06)
+**Version:** 0.5.1 (2026-04-06)
 
 ## Features
 
@@ -19,6 +19,8 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 - **Dictionary Lookup:** Built-in dictionary with 160K words (d key) - *v0.4.12*
 - **Word Selection Mode:** Visual word selection with arrow keys - *v0.4.13*
 - **Direct Dictionary Prompt:** Type any word to lookup (? key) - *v0.4.15*
+- **Help Dialog:** Press h to see all key bindings - *v0.5.1*
+- **Clean Status Bar:** Simplified footer with just position info - *v0.5.1*
 
 ## Controls
 
@@ -36,7 +38,8 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 | `d` | Dictionary selection mode (visual word selection) - *v0.4.13* |
 | `?` | Dictionary lookup prompt (type any word) - *v0.4.15* |
 | `m` | Toggle theme |
-| `h` | Toggle header |
+| `h` | Show help dialog - *v0.5.1* |
+| `H` | Toggle header - *v0.5.1* |
 | `g` | Toggle heading style (bold/reverse) |
 | `q` | Quit |
 
@@ -109,6 +112,18 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 ---
 
 ## Recent Changes
+
+### v0.5.1 (2026-04-06) - Help Dialog & Clean Status Bar
+
+**Summary:** Cleaned up the UI by moving key hints to a help dialog and simplifying the status bar.
+
+**Changes:**
+- **Help dialog (`h` key):** Shows all key bindings in a nicely formatted popup
+- **Clean status bar:** Footer now only shows position info (chapter, page, percentage)
+- **Header toggle:** Moved to `H` (uppercase) to free up `h` for help
+- All key bindings documented in one place
+
+**Rationale:** The status bar was getting crowded with too many key hints. Moving them to a help dialog keeps the UI clean while making it easy to look up controls.
 
 ### v0.5.0 (2026-04-06) - Major Milestone Release
 
