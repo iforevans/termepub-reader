@@ -46,7 +46,7 @@ FOOTER_FORMAT = (
     "C {}/{} P {}/{} {}% | L/R page | U/D chap | t TOC | / find | Bmark | Open | Mode | Head | j{justify} | d dict | Quit |"
 )
 FOOTER_FORMAT_SELECTION = (
-    " SELECTION MODE - Arrow keys to navigate, 'd' to lookup, Esc to cancel "
+    " SELECTION MODE - Arrow keys to navigate, Enter to lookup, Esc to cancel "
 )
 
 
@@ -1409,11 +1409,11 @@ class ReaderUI:
         
         First press 'd': Enter selection mode, highlight first word
         Arrow keys: Move selection between words
-        Second 'd': Lookup selected word
+        Enter: Lookup selected word
         Escape: Cancel selection
         """
         if self.in_selection_mode:
-            # Second 'd' - lookup the selected word
+            # Enter key pressed - lookup the selected word
             if self.selected_word_start < self.selected_word_end:
                 # Get the selected word from the styled pages (same source as extraction!)
                 styled_pages = self._get_styled_pages(self.chapter_index)
@@ -2179,8 +2179,8 @@ class ReaderUI:
     def handle_key(self, ch: int):
         # Handle selection mode first
         if self.in_selection_mode:
-            if ch == ord("d") or ch == ord("D"):
-                # Second 'd' - lookup selected word
+            if ch == 10 or ch == curses.KEY_ENTER:  # Enter key
+                # Look up selected word
                 self.dictionary_lookup()
             elif ch == 27:  # Escape
                 # Cancel selection mode

@@ -39,9 +39,9 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 | `q` | Quit |
 
 **Dictionary Selection Mode (v0.4.13):**
-1. Press `d` to enter selection mode (first word highlighted)
+1. Press `d` to enter selection mode (first word highlighted in reverse video)
 2. Use arrow keys (←/→/↑/↓) to navigate between words
-3. Press `d` again to look up the highlighted word
+3. Press `Enter` to look up the highlighted word
 4. Press `Esc` to cancel selection
 
 ## Usage
