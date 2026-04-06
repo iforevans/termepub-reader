@@ -2,7 +2,7 @@
 
 A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. Built for offline reading in terminal environments.
 
-**Version:** 0.4.15 (2026-04-06)
+**Version:** 0.5.0 (2026-04-06)
 
 ## Features
 
@@ -109,6 +109,23 @@ Pair programmed with my OpenClaw Agent Sparky ⚡. Using local Qwen 27B running 
 ---
 
 ## Recent Changes
+
+### v0.5.0 (2026-04-06) - Major Milestone Release
+
+**Summary:** A stable, feature-complete terminal EPUB reader ready for daily use.
+
+**New in this release:**
+- **Direct dictionary prompt:** Press `?` to type any word to look up
+- **Visual word selection:** Press `d` to highlight and select words on screen
+- **Enter key confirmation:** More intuitive selection mode (Enter to lookup)
+- **Full CSS support:** Inline styling with colors, bold, italic, underline
+- **Polished UX:** Proper word wrapping, justified text toggle, progress tracking
+
+**This release represents:**
+- 9 days of active development (v0.4.7 → v0.5.0)
+- 8 versions of iterative improvement
+- Extensive testing on Gemini PDA
+- A stable foundation for future enhancements
 
 ### v0.4.15 (2026-04-06) - Direct Dictionary Prompt
 
