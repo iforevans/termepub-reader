@@ -11,7 +11,7 @@ Features:
 - Justified text mode toggle (x key)
 - Word selection mode for dictionary lookup (d key + arrow keys)
 
-Version: 0.4.13
+Version: 0.5.1
 """
 import curses
 import hashlib
@@ -968,76 +968,6 @@ class FilePicker:
         if self.filtered_entries and self.selected >= len(self.filtered_entries):
             self.selected = max(0, len(self.filtered_entries) - 1)
 
-    def _normalize_title(self, title: str) -> str:
-        """Normalize title for jumping: remove leading articles, strip extension."""
-        # Remove .epub extension
-        base = os.path.splitext(title)[0]
-        # Remove leading articles (case-insensitive)
-        articles = ["the ", "a ", "an "]
-        for article in articles:
-            if base.lower().startswith(article):
-                base = base[len(article):].strip()
-                break
-        return base.strip()
-
-    def jump_to_letter(self, letter: str):
-        """Jump to the first entry starting with the given letter (case-insensitive)."""
-        letter = letter.lower()
-        normalized_entries = [(self._normalize_title(label), label, full, is_dir)
-                              for label, full, is_dir in self.entries]
-        
-        # Find first entry starting with the letter
-        for idx, (normalized, label, full, is_dir) in enumerate(normalized_entries):
-            if normalized and normalized[0].lower() == letter:
-                self.selected = idx
-                self.status = f"Jumped to: {label}"
-                break
-        else:
-            self.status = f"No entries starting with '{letter.upper()}'"
-
-    def refresh_entries(self):
-        entries: List[Tuple[str, str, bool]] = []
-        parent = os.path.dirname(self.current_dir)
-        if parent and parent != self.current_dir:
-            entries.append(("..", parent, True))
-        try:
-            names = os.listdir(self.current_dir)
-        except OSError as exc:
-            self.status = f"Cannot open directory: {exc}"
-            names = []
-        dirs = []
-        files = []
-        for name in names:
-            full = os.path.join(self.current_dir, name)
-            if os.path.isdir(full):
-                dirs.append((name + "/", full, True))
-            elif name.lower().endswith(".epub"):
-                files.append((name, full, False))
-        dirs.sort(key=lambda x: x[0].lower())
-        files.sort(key=lambda x: x[0].lower())
-        entries.extend(dirs)
-        entries.extend(files)
-        self.entries = entries
-        if self.selected >= len(self.entries):
-            self.selected = max(0, len(self.entries) - 1)
-        self.apply_filter()
-
-    def apply_filter(self):
-        """Apply the current filter text to the entries list."""
-        if not self.filter_text:
-            self.filtered_entries = self.entries
-            return
-        
-        filter_lower = self.filter_text.lower()
-        self.filtered_entries = [
-            entry for entry in self.entries
-            if filter_lower in entry[0].lower()
-        ]
-        
-        # Adjust selection if needed
-        if self.filtered_entries and self.selected >= len(self.filtered_entries):
-            self.selected = max(0, len(self.filtered_entries) - 1)
-
     def run(self) -> Optional[str]:
         waiting_for_letter = False
         waiting_letter_buffer = ""
@@ -1845,16 +1775,6 @@ Press any key..."""
         elif self.page_index >= len(pages):
             self.page_index = len(pages) - 1
 
-    def _get_pages_count(self, chapter_index: int) -> int:
-        """Get number of pages in a chapter."""
-        h, w = self.stdscr.getmaxyx()
-        reserved = 2 if self.show_header else 1
-        body_h = max(3, h - reserved)
-        body_w = max(20, w - 1)
-        
-        lines = self._wrap_text(self.book.chapters[chapter_index], body_w)
-        return max(1, (len(lines) + body_h - 1) // body_h)
-
     def _wrap_text(self, text: str, width: int) -> List[str]:
         out: List[str] = []
         paragraphs = text.split("\n\n")
@@ -2501,7 +2421,8 @@ def usage() -> str:
         "  s             in picker: start live search/filter (type to filter)\n"
         "  j             in picker: jump to book starting with letter (then type a-z)\n"
         "  m             toggle dark/light mode\n"
-        "  h             toggle top title bar\n"
+        "  h             help\n"
+        "  H             toggle top title bar\n"
         "  g             toggle heading style (bold/reverse)\n"
         "  q             quit\n"
         "\n"
