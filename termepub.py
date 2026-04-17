@@ -1,6 +1,6 @@
 #!/usr/local/bin/python3.9
 """
-termepub_reader.py - Terminal-based EPUB reader with inline CSS styling support.
+termepub.py - Terminal-based EPUB reader with inline CSS styling support.
 
 Features:
 - Read EPUB files in the terminal using curses
@@ -2410,7 +2410,7 @@ Press any key..."""
 
 def usage() -> str:
     return (
-        "Usage: termepub_reader.py [book.epub] [--bookmark] [--no-css]\n\n"
+        "Usage: termepub.py [book.epub] [--bookmark] [--no-css]\n\n"
         "Controls:\n"
         "  Left / Right  previous/next page\n"
         "  Up / Down     previous/next chapter\n"

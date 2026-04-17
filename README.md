@@ -52,7 +52,7 @@ A terminal-based (NCurses) ePUB reader with a clean, keyboard-driven interface. 
 ## Usage
 
 ```bash
-termepub_reader.py [book.epub] [--bookmark] [--no-css] [--version]
+termepub.py [book.epub] [--bookmark] [--no-css] [--version]
 ```
 
 **Options:**
@@ -65,11 +65,11 @@ termepub_reader.py [book.epub] [--bookmark] [--no-css] [--version]
 1. Clone this repository
 2. Make the script executable:
    ```bash
-   chmod +x termepub_reader.py
+   chmod +x termepub.py
    ```
 3. Run it:
    ```bash
-   ./termepub_reader.py
+   ./termepub.py
    ```
 
 ## CSS Styling Support (v0.4.2+)
