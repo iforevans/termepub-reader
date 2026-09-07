@@ -135,6 +135,28 @@ fn epub3_nav_loads_toc() {
 }
 
 #[test]
+fn nav_toc_ignores_landmarks_nav() {
+    // Regression: the parser treated the first <nav> as the TOC, so a
+    // landmarks (or guide) nav placed before the real TOC nav produced a
+    // wrong table of contents.  Only the nav typed epub:type="toc" should be
+    // used.
+    let tmp = TempDir::new().unwrap();
+    let path = build_epub(tmp.path(), "landmarks", "epub3_nav_landmarks");
+    let book = termepub::EpubBook::open(&path, true).expect("should open");
+    let toc = book.toc();
+    assert_eq!(
+        toc.len(),
+        2,
+        "should capture only the toc nav, not landmarks: {toc:?}"
+    );
+    assert_eq!(toc[0].title, "Chapter 1");
+    assert_eq!(toc[1].title, "Chapter 2");
+    // Both entries should resolve to their spine chapters.
+    assert_eq!(toc[0].spine_index, Some(0));
+    assert_eq!(toc[1].spine_index, Some(1));
+}
+
+#[test]
 fn unresolved_toc_entry_has_none_spine_index() {
     // Regression: a TOC entry whose href does not resolve to a spine item
     // used to silently fall back to spine_index 0, sending the reader to

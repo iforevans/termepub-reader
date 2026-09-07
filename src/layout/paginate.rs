@@ -204,100 +204,97 @@ fn wrap_paragraph(
         return Vec::new();
     }
 
-    // Convert to styled segments.
+    // Convert to styled segments.  Each line is split into segments per
+    // contiguous run of identical style so that inline styling (bold, color,
+    // ...) within a single wrapped line is preserved instead of being
+    // flattened to the first word's style.
     let is_final_line = raw_lines.len();
     raw_lines
         .into_iter()
         .enumerate()
         .map(|(line_idx, line_words)| {
-            // Only justify non-final lines with two or more words.  A
-            // single-word line has no gaps to distribute space across, so
-            // it must fall through to plain joining (justifying it would
-            // divide by zero gaps).
-            if justify && line_idx + 1 < is_final_line && line_words.len() > 1 {
-                justify_line_segments(&line_words, max_width)
+            let gaps = if justify && line_idx + 1 < is_final_line {
+                justify_gaps(&line_words, max_width).unwrap_or_else(|| plain_gaps(line_words.len()))
             } else {
-                // Join with single spaces.
-                let text: String = line_words
-                    .iter()
-                    .map(|(w, _, _)| w.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let style = line_words
-                    .first()
-                    .map(|(_, s, _)| s.clone())
-                    .unwrap_or_default();
-                let is_heading = line_words.first().map(|(_, _, h)| *h).unwrap_or(false);
-                vec![StyledSegment {
-                    text,
-                    style,
-                    is_heading,
-                }]
-            }
+                plain_gaps(line_words.len())
+            };
+            build_line_segments(&line_words, &gaps)
         })
         .collect()
 }
 
-/// Justifies a line by adding extra spaces between words.
-fn justify_line_segments(
-    line_words: &[(String, TextStyle, bool)],
-    max_width: usize,
-) -> Vec<StyledSegment> {
+/// Returns the number of spaces to place after each word of a justified
+/// non-final line, or `None` when justification would add no extra space
+/// (single-word line, or nothing left to distribute) — the caller then falls
+/// back to plain single-space joining.
+fn justify_gaps(line_words: &[(String, TextStyle, bool)], max_width: usize) -> Option<Vec<usize>> {
+    if line_words.len() <= 1 {
+        return None;
+    }
     let content_width: usize = line_words
         .iter()
         .map(|(w, _, _)| width::text_width(w))
         .sum();
-    let gaps = line_words.len().saturating_sub(1);
+    let gaps = line_words.len() - 1;
     let total_space = max_width.saturating_sub(content_width);
 
-    // No gaps to distribute (single word) or nothing to distribute: fall
-    // back to plain joining.  Guards against integer division by zero.
-    if gaps == 0 || total_space <= gaps {
-        let text: String = line_words
-            .iter()
-            .map(|(w, _, _)| w.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let style = line_words
-            .first()
-            .map(|(_, s, _)| s.clone())
-            .unwrap_or_default();
-        let is_heading = line_words.first().map(|(_, _, h)| *h).unwrap_or(false);
-        return vec![StyledSegment {
-            text,
-            style,
-            is_heading,
-        }];
+    // Nothing to distribute: fall back to plain joining.  This also guards
+    // against integer division by zero when there are no gaps.
+    if total_space <= gaps {
+        return None;
     }
 
     let base_extra = (total_space - gaps) / gaps;
     let extra_remainder = (total_space - gaps) % gaps;
-
-    let mut parts: Vec<String> = Vec::new();
-    for (i, (word, _, _)) in line_words.iter().enumerate() {
-        if i > 0 {
-            let extra = if i - 1 < extra_remainder {
-                base_extra + 1
-            } else {
-                base_extra
-            };
-            let spaces: String = " ".repeat(1 + extra);
-            parts.push(spaces);
-        }
-        parts.push(word.clone());
+    let mut gap_spaces = vec![0usize; line_words.len()];
+    for (i, slot) in gap_spaces.iter_mut().enumerate().take(gaps) {
+        let extra = if i < extra_remainder {
+            base_extra + 1
+        } else {
+            base_extra
+        };
+        *slot = 1 + extra;
     }
+    Some(gap_spaces)
+}
 
-    let text = parts.join("");
-    let style = line_words
-        .first()
-        .map(|(_, s, _)| s.clone())
-        .unwrap_or_default();
-    let is_heading = line_words.first().map(|(_, _, h)| *h).unwrap_or(false);
-    vec![StyledSegment {
-        text,
-        style,
-        is_heading,
-    }]
+/// Single-space gaps between words, with no trailing space after the last word.
+fn plain_gaps(n: usize) -> Vec<usize> {
+    let mut gaps = vec![1usize; n];
+    if n > 0 {
+        gaps[n - 1] = 0;
+    }
+    gaps
+}
+
+/// Builds the rendered segments for one wrapped line, grouping consecutive
+/// words that share the same style into a single segment so inline styling is
+/// preserved.  `gap_spaces[i]` is the number of spaces following word `i` (the
+/// gap before word `i + 1`); a trailing space belongs to the style of the word
+/// it follows.
+fn build_line_segments(
+    line_words: &[(String, TextStyle, bool)],
+    gap_spaces: &[usize],
+) -> Vec<StyledSegment> {
+    let mut segments: Vec<StyledSegment> = Vec::new();
+    for (i, (word, style, is_heading)) in line_words.iter().enumerate() {
+        let mut text = word.clone();
+        if i < gap_spaces.len() && gap_spaces[i] > 0 {
+            text.push_str(&" ".repeat(gap_spaces[i]));
+        }
+        if let Some(last) = segments.last_mut() {
+            if last.style == *style && last.is_heading == *is_heading {
+                last.text.push_str(&text);
+                continue;
+            }
+        }
+        segments.push(StyledSegment {
+            text,
+            style: style.clone(),
+            is_heading: *is_heading,
+        });
+    }
+    segments
 }
 
 /// Wraps preformatted text (contains \n), preserving line breaks.

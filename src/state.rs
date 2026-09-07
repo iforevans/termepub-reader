@@ -79,7 +79,48 @@ impl StateStore {
             serde_json::json!({})
         };
 
-        Ok(Self { path, data })
+        let mut store = Self { path, data };
+        store.migrate_bookmarks();
+        Ok(store)
+    }
+
+    /// Copies legacy bookmark positions (stored in the shared
+    /// `chapter_index`/`page_index` fields) into the dedicated
+    /// `bookmark_chapter_index`/`bookmark_page_index` fields so that saving a
+    /// new reading position no longer overwrites the bookmark.  Runs once on
+    /// load for files written before the split; the copied values are then
+    /// persisted on the next save.
+    fn migrate_bookmarks(&mut self) {
+        let Some(map) = self.data.as_object_mut() else {
+            return;
+        };
+        for (key, val) in map.iter_mut() {
+            if key == "_global" {
+                continue;
+            }
+            let Some(entry) = val.as_object_mut() else {
+                continue;
+            };
+            let has_bookmark = entry
+                .get("bookmark")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if has_bookmark && !entry.contains_key("bookmark_chapter_index") {
+                let chapter = entry
+                    .get("chapter_index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let page = entry
+                    .get("page_index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                entry.insert(
+                    "bookmark_chapter_index".to_string(),
+                    serde_json::json!(chapter),
+                );
+                entry.insert("bookmark_page_index".to_string(), serde_json::json!(page));
+            }
+        }
     }
 
     /// Opens the default state file at `~/.config/termepub/state.json`.
@@ -200,6 +241,10 @@ impl StateStore {
     }
 
     /// Sets a bookmark for a book.
+    ///
+    /// The bookmark is stored in dedicated `bookmark_chapter_index` /
+    /// `bookmark_page_index` fields so that saving a reading position (which
+    /// writes `chapter_index` / `page_index`) never clobbers it.
     pub fn set_bookmark(&mut self, key: &str, chapter: usize, page: usize) -> Result<(), Error> {
         let entry = self
             .data
@@ -209,8 +254,11 @@ impl StateStore {
             .or_insert_with(|| serde_json::json!({}));
 
         if let Some(map) = entry.as_object_mut() {
-            map.insert(String::from("chapter_index"), serde_json::json!(chapter));
-            map.insert(String::from("page_index"), serde_json::json!(page));
+            map.insert(
+                String::from("bookmark_chapter_index"),
+                serde_json::json!(chapter),
+            );
+            map.insert(String::from("bookmark_page_index"), serde_json::json!(page));
             map.insert(String::from("bookmark"), serde_json::json!(true));
         }
 
@@ -218,6 +266,10 @@ impl StateStore {
     }
 
     /// Returns the bookmark position for a book, if set.
+    ///
+    /// Reads the dedicated bookmark fields, falling back to the shared
+    /// `chapter_index` / `page_index` fields for files written before the
+    /// split that were not migrated.
     pub fn get_bookmark(&self, key: &str) -> Option<BookState> {
         let val = self.data.get(key)?;
         let map = val.as_object()?;
@@ -228,7 +280,22 @@ impl StateStore {
         {
             return None;
         }
-        Some(BookState::from_value(val))
+        let chapter_index = map
+            .get("bookmark_chapter_index")
+            .or_else(|| map.get("chapter_index"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(0);
+        let page_index = map
+            .get("bookmark_page_index")
+            .or_else(|| map.get("page_index"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(0);
+        Some(BookState {
+            chapter_index,
+            page_index,
+        })
     }
 
     /// Sets a global string value in the `_global` object.

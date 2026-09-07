@@ -105,8 +105,12 @@ impl EpubBook {
         let pkg = package::parse_package(&mut archive, &opf_path)?;
 
         // Load TOC.
-        let toc_base = opf_path.rfind('/').map(|i| &opf_path[..i]);
         let toc = if let Some(toc_href) = package::find_toc_document(&pkg.manifest) {
+            // TOC hrefs are resolved relative to the TOC document's own
+            // directory, not the OPF's.  `toc_href` was already resolved
+            // against the OPF directory by parse_package, so its parent
+            // directory is the correct base for resolving entry hrefs.
+            let toc_base = toc_href.rfind('/').map(|i| &toc_href[..i]);
             let nav_item = pkg.manifest.iter().find(|item| item.href == toc_href);
 
             if nav_item

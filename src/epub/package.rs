@@ -288,7 +288,59 @@ pub fn find_toc_document(manifest: &[ManifestItem]) -> Option<String> {
         })
 }
 
+/// Returns the 0-based occurrence index of the first `<nav>` element marked
+/// `epub:type="toc"` (or `type="toc"`), or `None` if no nav carries that type.
+///
+/// A nav document may contain several `<nav>` elements (landmarks, guide,
+/// etc.); only the one typed as the TOC should be treated as the table of
+/// contents.
+fn find_toc_nav_index(html: &str) -> Option<usize> {
+    let mut reader = quick_xml::Reader::from_str(html);
+    let mut buf = Vec::new();
+    let mut nav_counter = 0usize;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(quick_xml::events::Event::Start(ref e))
+            | Ok(quick_xml::events::Event::Empty(ref e)) => {
+                let name = local_name(e.name().as_ref());
+                if name == b"nav" {
+                    let mut is_toc = false;
+                    for attr in e.attributes() {
+                        let attr = match attr {
+                            Ok(a) => a,
+                            Err(_) => continue,
+                        };
+                        let key = local_name(attr.key.as_ref());
+                        if key == b"type" {
+                            if let Ok(v) = std::str::from_utf8(attr.value.as_ref()) {
+                                if v.trim() == "toc" {
+                                    is_toc = true;
+                                }
+                            }
+                        }
+                    }
+                    if is_toc {
+                        return Some(nav_counter);
+                    }
+                    nav_counter += 1;
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    None
+}
+
 /// Parses an EPUB 3 nav document and extracts TOC entries.
+///
+/// The TOC is the `<nav>` element marked `epub:type="toc"` (or `type="toc"`).
+/// If no nav carries that type, the first `<nav>` is used as a fallback, since
+/// some books omit the type attribute.
 pub fn parse_nav_toc(
     archive: &mut Archive,
     nav_href: &str,
@@ -298,10 +350,17 @@ pub fn parse_nav_toc(
         .read_text(nav_href)
         .map_err(|_| Error::InvalidEpub(format!("cannot read nav document: {nav_href}")))?;
 
+    // Which nav occurrence (0-based among all <nav> elements) is the TOC.
+    let target_nav = find_toc_nav_index(&html).unwrap_or(0);
+
     let mut entries = Vec::new();
     let mut reader = quick_xml::Reader::from_str(&html);
     let mut buf = Vec::new();
 
+    // Total <nav> elements opened so far, and the occurrence indices of the
+    // navs currently open (a stack, so nested/sibling navs track correctly).
+    let mut nav_counter = 0usize;
+    let mut nav_stack: Vec<usize> = Vec::new();
     let mut in_toc_nav = false;
     let mut in_link = false;
     let mut link_href = String::new();
@@ -312,8 +371,13 @@ pub fn parse_nav_toc(
             Ok(quick_xml::events::Event::Start(ref e)) => {
                 let name = local_name(e.name().as_ref());
 
-                if name == b"nav" && !in_toc_nav {
-                    in_toc_nav = true;
+                if name == b"nav" {
+                    let idx = nav_counter;
+                    nav_counter += 1;
+                    nav_stack.push(idx);
+                    if idx == target_nav {
+                        in_toc_nav = true;
+                    }
                 }
 
                 if in_toc_nav && name == b"a" {
@@ -352,8 +416,13 @@ pub fn parse_nav_toc(
                     link_text.clear();
                 }
 
-                if in_toc_nav && name == b"nav" {
-                    in_toc_nav = false;
+                if name == b"nav" {
+                    if let Some(&top) = nav_stack.last() {
+                        if top == target_nav {
+                            in_toc_nav = false;
+                        }
+                        nav_stack.pop();
+                    }
                 }
             }
             Ok(quick_xml::events::Event::Text(ref e)) => {

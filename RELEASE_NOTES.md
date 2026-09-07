@@ -1,5 +1,28 @@
 # Release Notes
 
+## termepub v2.4.1 — 2026-09-07
+
+Bug-fix release from a second code review. Six correctness bugs fixed; no new features.
+
+### What Changed
+
+- **Inline styling no longer lost mid-line** — a wrapped line was flattened into a single segment carrying the *first* word's style, so a bold or colored span sharing a line with other text rendered unstyled. Each contiguous run of identical style is now kept as its own segment (justified lines included).
+- **Bookmarks no longer clobbered by the reading position** — bookmarks and the saved position shared the same `chapter_index`/`page_index` fields, so continuing to read after setting a bookmark moved it. Bookmarks are now stored in dedicated fields, and pre-existing (Python v1) state files are migrated on load.
+- **Footer shows the correct chapter title** — the footer indexed the TOC by chapter position, but TOC entries are not 1:1 with spine chapters. It now looks up the entry whose resolved spine position matches the current chapter.
+- **Search now covers the whole book** — search only scanned the current chapter. It now paginates and searches every chapter and jumps to the chapter/page of the first match, showing a "No results found." popup on a miss.
+- **EPUB 3 nav: only the `epub:type="toc"` nav is used** — the parser previously grabbed the first `<nav>`, so a landmarks or guide nav placed before the TOC nav produced a wrong table of contents. Books that omit the type attribute still fall back to the first nav.
+- **TOC links resolve against the TOC document's directory** — nav/NCX entry hrefs were resolved relative to the OPF's directory; a TOC document in a subdirectory now resolves its links correctly.
+
+### Technical Details
+
+- `wrap_paragraph` builds lines via a new `build_line_segments` helper (with `justify_gaps`/`plain_gaps`) that groups consecutive words by style.
+- `StateStore` gained `migrate_bookmarks()` and dedicated `bookmark_chapter_index`/`bookmark_page_index` fields; `get_bookmark` falls back to the shared fields for unmigrated entries.
+- `App::search_book` paginates all spine chapters at the current terminal size and maps the matched page back to `(chapter, page)`.
+- `package::find_toc_nav_index` selects the TOC nav; `parse_nav_toc` tracks nav occurrences with a counter and stack.
+- Test coverage: 100 passing tests locally (8 new regression tests across `layout`, `state`, `epub`, and a new `search` integration suite), plus 6 PTY integration tests that run with `--ignored`. New `epub3_nav_landmarks` fixture covers the nav-type fix.
+
+---
+
 ## termepub v2.4.0 — 2026-09-06
 
 Correctness and robustness release from a full code review. No new features; a series of bug fixes, edge-case hardening, and dead-code removal.

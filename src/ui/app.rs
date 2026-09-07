@@ -267,12 +267,21 @@ impl App {
     fn handle_search_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Enter => {
-                if !self.search_query.is_empty() {
-                    if let Some(ref _book) = self.book {
-                        let result = crate::search_pages(&self.pages, &self.search_query);
-                        self.search_result_page = result;
-                        if let Some(page) = result {
+                // Search the whole book, not just the current chapter, and
+                // jump to the chapter/page of the first match.
+                if !self.search_query.is_empty() && self.book.is_some() {
+                    match self.search_book(&self.search_query) {
+                        Some((chapter, page)) => {
+                            self.search_result_page = Some(page);
+                            self.navigate_chapter(chapter);
                             self.go_to_page(page);
+                        }
+                        None => {
+                            self.search_result_page = None;
+                            self.popup_message = Some("No results found.".into());
+                            self.search_query.clear();
+                            self.mode = Mode::Popup;
+                            return true;
                         }
                     }
                 }
@@ -541,6 +550,34 @@ impl App {
             return;
         }
         self.page_index = page.min(self.pages.len() - 1);
+    }
+
+    /// Searches the entire book (all spine chapters) for `query`, paginating
+    /// each chapter at the current terminal size.  Returns the
+    /// `(chapter_index, page_index)` of the first match, or `None` if the
+    /// phrase is not found anywhere in the book.
+    fn search_book(&self, query: &str) -> Option<(usize, usize)> {
+        let book = self.book.as_ref()?;
+        let (cols, rows) = self.terminal_size;
+
+        let mut flat_pages: Vec<Vec<Vec<StyledSegment>>> = Vec::new();
+        let mut flat_map: Vec<(usize, usize)> = Vec::new();
+        for (chapter, segments) in book.chapters().iter().enumerate() {
+            let pages = crate::paginate(
+                segments,
+                cols as usize,
+                rows as usize,
+                self.show_header,
+                self.justify,
+            );
+            for (page, rendered) in pages.into_iter().enumerate() {
+                flat_map.push((chapter, page));
+                flat_pages.push(rendered);
+            }
+        }
+
+        let idx = crate::search_pages(&flat_pages, query)?;
+        Some(flat_map[idx])
     }
 
     fn next_page(&mut self) {

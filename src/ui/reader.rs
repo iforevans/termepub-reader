@@ -135,13 +135,16 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme;
 
     let version = env!("CARGO_PKG_VERSION");
+    // TOC entries are not 1:1 with spine chapters (an entry may point at any
+    // spine item and several may share one), so look up the entry whose
+    // resolved spine position matches the current chapter rather than indexing
+    // the TOC directly.
     let chapter_title = if let Some(ref book) = app.book {
         let toc = book.toc();
-        if app.chapter_index < toc.len() {
-            toc[app.chapter_index].title.clone()
-        } else {
-            format!("Chapter {}", app.chapter_index + 1)
-        }
+        toc.iter()
+            .find(|e| e.spine_index == Some(app.chapter_index))
+            .map(|e| e.title.clone())
+            .unwrap_or_else(|| format!("Chapter {}", app.chapter_index + 1))
     } else {
         String::from("No book")
     };

@@ -183,6 +183,94 @@ fn justification_single_word_nonfinal_line_no_panic() {
 }
 
 #[test]
+fn inline_style_within_line_is_preserved() {
+    // Regression: a wrapped line used to be flattened into a single segment
+    // carrying the first word's style, which dropped bold/color spans that
+    // shared the line.  Each contiguous run of identical style must remain a
+    // distinct segment.
+    let segments = vec![
+        StyledSegment {
+            text: "hello ".to_string(),
+            style: TextStyle::default(),
+            is_heading: false,
+        },
+        StyledSegment {
+            text: "bold ".to_string(),
+            style: TextStyle {
+                bold: true,
+                ..Default::default()
+            },
+            is_heading: false,
+        },
+        StyledSegment {
+            text: "tail".to_string(),
+            style: TextStyle::default(),
+            is_heading: false,
+        },
+    ];
+    let pages = termepub::paginate(&segments, 80, 24, true, false);
+    let all: Vec<&StyledSegment> = pages
+        .iter()
+        .flat_map(|p| p.iter())
+        .flat_map(|l| l.iter())
+        .collect();
+
+    // The bold word must keep its bold style.
+    let bold_seg = all.iter().find(|s| s.text.contains("bold")).copied();
+    assert!(
+        bold_seg.is_some() && bold_seg.unwrap().style.bold,
+        "the 'bold' word must keep its bold style, got: {all:?}"
+    );
+    // A non-bold word must not be bold.
+    let plain_seg = all.iter().find(|s| s.text.contains("hello")).copied();
+    assert!(
+        plain_seg.is_some() && !plain_seg.unwrap().style.bold,
+        "the 'hello' word must stay unbolded, got: {all:?}"
+    );
+    // The rendered text is unchanged.
+    let text: String = all.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(text, "hello bold tail");
+}
+
+#[test]
+fn justified_line_preserves_inline_style() {
+    // Regression: the justified path had the same flatten-to-first-style bug.
+    let segments = vec![
+        StyledSegment {
+            text: "one ".to_string(),
+            style: TextStyle::default(),
+            is_heading: false,
+        },
+        StyledSegment {
+            text: "two ".to_string(),
+            style: TextStyle {
+                bold: true,
+                ..Default::default()
+            },
+            is_heading: false,
+        },
+        StyledSegment {
+            text: "three".to_string(),
+            style: TextStyle::default(),
+            is_heading: false,
+        },
+    ];
+    // Narrow width forces multiple lines so the first line is non-final and
+    // gets justified.
+    let pages = termepub::paginate(&segments, 10, 10, true, true);
+    let all: Vec<&StyledSegment> = pages
+        .iter()
+        .flat_map(|p| p.iter())
+        .flat_map(|l| l.iter())
+        .collect();
+    let bold_seg = all.iter().find(|s| s.text.contains("two")).copied();
+    assert!(
+        bold_seg.is_some() && bold_seg.unwrap().style.bold,
+        "justified lines must keep inline style, got: {all:?}"
+    );
+}
+
+#[test]
 fn short_heading_deduplication() {
     // "CHAPTER ONE" separated by blank lines should be deduplicated.
     let html = "<p>CHAPTER ONE</p><p><br/></p><p>CHAPTER ONE</p>";
