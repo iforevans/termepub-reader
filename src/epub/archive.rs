@@ -97,16 +97,18 @@ impl Archive {
             }
         }
 
-        // Read the content.
+        // Read the content, bounding the read with `take` so a lying central
+        // directory (under-reporting a member's decompressed size) cannot
+        // trigger an unbounded allocation before the size check below fires.
         let mut content = Vec::with_capacity(decompressed_size as usize);
-        let mut reader = info;
+        let mut reader = info.take(MAX_EPUB_TEXT_MEMBER_SIZE + 1);
         reader
             .read_to_end(&mut content)
             .map_err(|e| Error::InvalidEpub(format!("failed to read \"{path}\": {e}")))?;
 
         if (content.len() as u64) > MAX_EPUB_TEXT_MEMBER_SIZE {
             return Err(Error::InvalidEpub(format!(
-                "member \"{path}\" exceeded size limit after read"
+                "member \"{path}\" exceeds the per-member size limit after read"
             )));
         }
 
@@ -185,6 +187,9 @@ fn parse_encryption_uris(xml: &str) -> Result<Vec<String>, Error> {
 /// segments safely, and ensures forward slashes.
 pub fn normalize_epub_path(path: &str) -> String {
     let path = path.split('#').next().unwrap_or(path);
+    // Some EPUBs (notably those authored on Windows) use backslash separators;
+    // normalize them to forward slashes before resolving segments.
+    let path = path.replace('\\', "/");
 
     let mut parts: Vec<&str> = Vec::new();
     for segment in path.split('/').filter(|s| !s.is_empty()) {
@@ -219,6 +224,19 @@ mod tests {
         assert_eq!(
             normalize_epub_path("OEBPS/chapters/../images/pic.png"),
             "OEBPS/images/pic.png"
+        );
+    }
+
+    #[test]
+    fn normalize_converts_backslashes() {
+        // EPUBs authored on Windows may use backslash separators.
+        assert_eq!(
+            normalize_epub_path("OEBPS\\chapters\\chapter1.xhtml"),
+            "OEBPS/chapters/chapter1.xhtml"
+        );
+        assert_eq!(
+            normalize_epub_path("content.opf\\..\\nav.xhtml"),
+            "nav.xhtml"
         );
     }
 

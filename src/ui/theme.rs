@@ -57,6 +57,15 @@ impl Theme {
     }
 }
 
+/// Fixed dialog colors, deliberately independent of the active theme so that
+/// dialogs read the same in every terminal and never blend into the page.
+///
+/// Informational dialogs (help, dictionary, confirmations, status) use a blue
+/// background; error dialogs use a red background.  Both use white text.
+pub const INFO_BG: Color = Color::Rgb(30, 64, 140);
+pub const ERROR_BG: Color = Color::Rgb(150, 30, 30);
+pub const DIALOG_FG: Color = Color::White;
+
 pub fn style_for_segment(seg: &StyledSegment, theme: &Theme) -> Style {
     let mut mods = Modifier::empty();
     if seg.is_heading {

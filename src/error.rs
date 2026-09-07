@@ -11,9 +11,6 @@ pub enum Error {
     #[error("unsupported content: {0}")]
     UnsupportedContent(String),
 
-    #[error("clipboard error: {0}")]
-    Clipboard(String),
-
     #[error("{0}")]
     Message(String),
 }

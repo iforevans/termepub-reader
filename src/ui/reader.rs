@@ -8,7 +8,7 @@ use crate::layout::paginate as layout_paginate;
 
 use super::app::{App, Mode};
 use super::picker::draw_picker;
-use super::theme::{style_for_segment, Theme};
+use super::theme::{style_for_segment, Theme, DIALOG_FG, ERROR_BG, INFO_BG};
 
 pub fn render(frame: &mut Frame, app: &App) {
     match app.mode {
@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         Mode::Search => draw_search(frame, app),
         Mode::Picker => draw_picker(frame, app),
         Mode::Popup => draw_popup(frame, app),
-        Mode::Help => draw_help(frame, app),
+        Mode::Help => draw_help(frame),
         Mode::Dictionary => draw_dictionary(frame, app),
     }
 }
@@ -275,9 +275,8 @@ fn draw_search(frame: &mut Frame, app: &App) {
     frame.render_widget(paragraph, chunks[1]);
 }
 
-fn draw_help(frame: &mut Frame, app: &App) {
+fn draw_help(frame: &mut Frame) {
     let area = frame.area();
-    let theme = app.theme;
 
     let help_text = [
         "termepub - Terminal EPUB Reader",
@@ -329,9 +328,7 @@ fn draw_help(frame: &mut Frame, app: &App) {
         .map(|line| {
             Line::from(Span::styled(
                 line.to_string(),
-                Style::default()
-                    .fg(theme.foreground())
-                    .bg(theme.background()),
+                Style::default().fg(DIALOG_FG).bg(INFO_BG),
             ))
         })
         .collect();
@@ -342,18 +339,24 @@ fn draw_help(frame: &mut Frame, app: &App) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Help ")
-                .style(Style::default().add_modifier(Modifier::BOLD)),
+                .style(
+                    Style::default()
+                        .fg(DIALOG_FG)
+                        .bg(INFO_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .wrap(Wrap { trim: false });
 
     let popup_area = centered_rect(area, 80, 24);
     frame.render_widget(Clear, popup_area);
+    let bg = Block::default().style(Style::default().bg(INFO_BG));
+    frame.render_widget(bg, popup_area);
     frame.render_widget(paragraph, popup_area);
 }
 
 fn draw_dictionary(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    let theme = app.theme;
 
     // Draw underlying reader first
     draw_reader(frame, app);
@@ -384,7 +387,7 @@ fn draw_dictionary(frame: &mut Frame, app: &App) {
 
     // Clear behind popup and draw background block
     frame.render_widget(Clear, popup_area);
-    let bg = Block::default().style(Style::default().bg(theme.background()));
+    let bg = Block::default().style(Style::default().bg(INFO_BG));
     frame.render_widget(bg, popup_area);
 
     // Draw outer border on the full popup area
@@ -393,7 +396,8 @@ fn draw_dictionary(frame: &mut Frame, app: &App) {
         .title(Span::raw(" Dictionary "))
         .style(
             Style::default()
-                .fg(theme.foreground())
+                .fg(DIALOG_FG)
+                .bg(INFO_BG)
                 .add_modifier(Modifier::BOLD),
         );
     frame.render_widget(outer_block, popup_area);
@@ -417,7 +421,7 @@ fn draw_dictionary(frame: &mut Frame, app: &App) {
         .map(|line| {
             Line::from(Span::styled(
                 format!("{} ", line),
-                Style::default().fg(Color::Cyan).bg(theme.background()),
+                Style::default().fg(DIALOG_FG).bg(INFO_BG),
             ))
         })
         .collect();
@@ -425,7 +429,7 @@ fn draw_dictionary(frame: &mut Frame, app: &App) {
     let result_text = Text::from(result_lines_vec);
     let result_para = Paragraph::new(result_text)
         .wrap(Wrap { trim: true })
-        .style(Style::default().bg(theme.background()));
+        .style(Style::default().bg(INFO_BG));
     frame.render_widget(result_para, inner[0]);
 
     // Prompt bar
@@ -433,8 +437,8 @@ fn draw_dictionary(frame: &mut Frame, app: &App) {
     let prompt_para = Paragraph::new(Span::styled(
         prompt,
         Style::default()
-            .fg(Color::Cyan)
-            .bg(theme.background())
+            .fg(DIALOG_FG)
+            .bg(INFO_BG)
             .add_modifier(Modifier::BOLD),
     ));
     frame.render_widget(prompt_para, inner[1]);
@@ -442,28 +446,45 @@ fn draw_dictionary(frame: &mut Frame, app: &App) {
 
 fn draw_popup(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    let theme = app.theme;
 
     if let Some(ref msg) = app.popup_message {
+        // Errors render on a red background; confirmations and status on blue.
+        // Both use white text, independent of the active theme.
+        let bg = if app.popup_is_error {
+            ERROR_BG
+        } else {
+            INFO_BG
+        };
+
+        // At least 30 wide, or wide enough for the message; centered_rect caps
+        // it to the terminal so long error messages don't get truncated.
+        let needed_w = (msg.chars().count() as u16).saturating_add(4).max(30);
+        let popup_area = centered_rect(area, needed_w, 5);
+
         let lines: Vec<Line> = vec![Line::from(Span::styled(
             msg.clone(),
             Style::default()
-                .fg(Color::Yellow)
-                .bg(theme.background())
+                .fg(DIALOG_FG)
+                .bg(bg)
                 .add_modifier(Modifier::BOLD),
         ))];
 
         let text = Text::from(lines);
         let paragraph = Paragraph::new(text)
             .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(Style::default().add_modifier(Modifier::BOLD)),
+                Block::default().borders(Borders::ALL).style(
+                    Style::default()
+                        .fg(DIALOG_FG)
+                        .bg(bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
             )
-            .alignment(Alignment::Center);
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
 
-        let popup_area = centered_rect(area, 30, 5);
         frame.render_widget(Clear, popup_area);
+        let bg_block = Block::default().style(Style::default().bg(bg));
+        frame.render_widget(bg_block, popup_area);
         frame.render_widget(paragraph, popup_area);
     }
 }

@@ -1,5 +1,33 @@
 # Release Notes
 
+## termepub v2.5.0 — 2026-09-07
+
+A feature and hardening release. Adds a non-interactive (piped) text-dump mode, a color-coded dialog system (blue for information, red for errors), and a set of correctness, performance, and cross-platform fixes from a code review.
+
+### What Changed
+
+- **Non-interactive (piped) mode** — when run without a TTY, termepub now dumps the book's plain text to stdout instead of starting the reader, so it can be piped or redirected: `termepub book.epub | less`, `... | grep steel`, `... > plain.txt`. Paragraph and preformatted line breaks are preserved; there are no colors or page breaks.
+- **Color-coded dialogs** — informational dialogs (help, dictionary, confirmations, status) render on a fixed **blue** background with white text, and error dialogs on a fixed **red** background with white text. These are independent of the active theme and no longer depend on the terminal's default colors, so they read consistently in any terminal.
+- **Errors are no longer silent** — opening a broken or invalid EPUB from the file picker now shows a red "Cannot open: …" dialog instead of doing nothing.
+- **No more lost styles in preformatted text** — `<pre>`/code blocks dropped inline styles (bold, color) when a logical line wrapped; each style run is now preserved across the wrap, and line breaks are kept.
+- **Bounded archive reads** — a corrupt or malicious central directory can no longer trigger an unbounded memory allocation; member reads are capped at the documented per-member limit.
+- **Windows-authored EPUBs open** — archive member paths that use backslash separators are now normalized to forward slashes.
+- **Snappier, lighter UI loop** — the event loop now redraws only when the screen actually changes (and on resize) instead of every poll tick, cutting idle CPU. The async runtime (`tokio`) and related dependencies were removed entirely; the reader is now fully synchronous.
+- **Better dictionary suggestions** — "did you mean" now prefers candidates that share the query's first character (typos usually preserve the start), rather than the alphabetically-earliest match.
+- **Cross-platform config directory** — the config dir now uses `%APPDATA%\termepub` on Windows and `$XDG_CONFIG_HOME`/`~/.config` elsewhere, shared by state and dictionary lookup.
+
+### Technical Details
+
+- New non-interactive path in `main`, gated by `atty::is(Stdout)`: opens the book and prints each chapter's segment text (blank line between chapters); exits non-zero on a missing/invalid path.
+- The `theme` module gained fixed, theme-independent dialog colors `INFO_BG`, `ERROR_BG`, and `DIALOG_FG`. `App` gained a `popup_is_error` flag and a `show_popup` helper; `draw_popup`, `draw_help`, and `draw_dictionary` now fill a solid background box and size to their content.
+- `wrap_preformatted` was rewritten to a two-phase pass (build logical lines while preserving style runs, then hard-wrap per grapheme).
+- `Archive` reads members via `Read::take(MAX_MEMBER + 1)`; `normalize_epub_path` converts backslashes to forward slashes.
+- `terminal::run_app` is synchronous with a draw-on-change flag and a 50 ms poll; `tokio`, `futures`, and crossterm's `event-stream` feature were dropped from `Cargo.toml`/`Cargo.lock`.
+- `state::termepub_config_dir()` is the single source of the config path (with Windows `%APPDATA%` support), used by both state and dictionary lookup.
+- Test coverage: 109 passing tests locally (5 new regression tests across the `archive`, `layout`, and `cli` suites — backslash normalization, preformatted style/line-break preservation, and the piped text-dump path), plus 6 PTY integration tests that run with `--ignored`.
+
+---
+
 ## termepub v2.4.1 — 2026-09-07
 
 Bug-fix release from a second code review. Six correctness bugs fixed; no new features.

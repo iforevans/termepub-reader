@@ -2,10 +2,10 @@ use clap::Parser;
 use termepub::cli::Cli;
 use termepub::error::Error;
 use termepub::ui;
+use termepub::EpubBook;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    match run().await {
+fn main() {
+    match run() {
         Ok(()) => std::process::exit(0),
         Err(err) => {
             eprintln!("Error: {err}");
@@ -14,7 +14,7 @@ async fn main() {
     }
 }
 
-async fn run() -> Result<(), Error> {
+fn run() -> Result<(), Error> {
     let cli = Cli::parse();
 
     // Check if we have a TTY — if not, fall back to non-interactive mode
@@ -37,14 +37,17 @@ async fn run() -> Result<(), Error> {
         app.load_global_settings();
     }
 
-    // Startup: explicit path -> prior book -> picker
+    // Startup: explicit path -> prior book -> picker.  The default mode is
+    // Reader, so a successfully opened book needs no explicit mode set.
     if let Some(ref path) = cli.epub_path {
         app.open_book(path.clone())?;
-        app.mode = ui::app::Mode::Reader;
     } else if let Some(last_path) = app.get_last_book_path() {
         if let Ok(absolute) = std::path::absolute(&last_path) {
-            let _ = app.open_book(absolute);
-            app.mode = ui::app::Mode::Reader;
+            if let Err(e) = app.open_book(absolute) {
+                // Surface the failure instead of silently dropping to the
+                // picker with no explanation.
+                eprintln!("termepub: could not reopen last book: {e}");
+            }
         }
     }
 
@@ -57,25 +60,27 @@ async fn run() -> Result<(), Error> {
         app.refresh_picker();
     }
 
-    let result = ui::terminal::run_app(app).await;
-    result
+    ui::terminal::run_app(app)
 }
 
+/// Non-interactive mode (no TTY): dump the book's text to stdout so the
+/// reader can be piped, e.g. `termepub book.epub | less`.
 fn run_non_interactive(cli: &Cli) -> Result<(), Error> {
-    // Non-TTY fallback: print info and exit successfully
-    if let Some(ref path) = cli.epub_path {
-        eprintln!("Opening: {}", path.display());
-    } else {
-        eprintln!("No EPUB path provided");
-    }
+    let Some(path) = &cli.epub_path else {
+        return Err(Error::Message(
+            "no EPUB path provided (and no TTY for the interactive reader)".into(),
+        ));
+    };
 
-    if cli.bookmark {
-        eprintln!("Bookmark mode requested");
+    let book = EpubBook::open(path, cli.use_css())?;
+    for (i, chapter) in book.chapters().iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        for seg in chapter {
+            print!("{}", seg.text);
+        }
     }
-
-    if !cli.use_css() {
-        eprintln!("CSS disabled");
-    }
-
+    println!();
     Ok(())
 }

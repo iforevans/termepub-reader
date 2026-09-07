@@ -271,6 +271,56 @@ fn justified_line_preserves_inline_style() {
 }
 
 #[test]
+fn preformatted_preserves_inline_style() {
+    // Regression: `<pre>` content was rendered with a default style, dropping
+    // any inline styling inside it.  Each run must keep its style, and line
+    // breaks must be preserved.
+    let html = "<pre>alpha\n<b>bold</b></pre>";
+    let segments = termepub::extract_html(html, true);
+    let pages = termepub::paginate(&segments, 40, 10, true, false);
+    let all: Vec<&StyledSegment> = pages
+        .iter()
+        .flat_map(|p| p.iter())
+        .flat_map(|l| l.iter())
+        .collect();
+    let bold = all.iter().find(|s| s.text.contains("bold")).copied();
+    assert!(
+        bold.is_some() && bold.unwrap().style.bold,
+        "pre content must keep inline style: {all:?}"
+    );
+}
+
+#[test]
+fn preformatted_preserves_line_breaks() {
+    // A `<pre>` block with newlines must keep its line structure (each
+    // physical line stays separate) rather than being re-flowed.
+    let html = "<pre>one\ntwo\nthree</pre>";
+    let segments = termepub::extract_html(html, true);
+    let pages = termepub::paginate(&segments, 40, 10, true, false);
+    // Collect the rendered lines as text.
+    let mut lines: Vec<String> = Vec::new();
+    for page in &pages {
+        for line in page {
+            let text: String = line.iter().map(|s| s.text.as_str()).collect();
+            lines.push(text);
+        }
+    }
+    // "one", "two", "three" must each be on their own line.
+    assert!(
+        lines.iter().any(|l| l == "one"),
+        "missing 'one' line: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l == "two"),
+        "missing 'two' line: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l == "three"),
+        "missing 'three' line: {lines:?}"
+    );
+}
+
+#[test]
 fn short_heading_deduplication() {
     // "CHAPTER ONE" separated by blank lines should be deduplicated.
     let html = "<p>CHAPTER ONE</p><p><br/></p><p>CHAPTER ONE</p>";

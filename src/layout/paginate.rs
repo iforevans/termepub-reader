@@ -1,5 +1,7 @@
 //! Pagination: styled wrapping, pages, dedup, and search.
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::layout::width;
 use crate::{StyledSegment, TextStyle};
 
@@ -139,11 +141,10 @@ fn wrap_paragraph(
         return Vec::new();
     }
 
-    // Concatenate all text to check for embedded newlines.
-    let full_text: String = segments.iter().map(|s| s.text.as_str()).collect();
-
-    if full_text.contains('\n') {
-        return wrap_preformatted(segments, &full_text, max_width);
+    // Preformatted text (any segment containing a newline) is wrapped with
+    // hard breaks that preserve line breaks and inline styles.
+    if segments.iter().any(|s| s.text.contains('\n')) {
+        return wrap_preformatted(segments, max_width);
     }
 
     // Flatten into words, keeping track of which original segment each word
@@ -297,16 +298,58 @@ fn build_line_segments(
     segments
 }
 
-/// Wraps preformatted text (contains \n), preserving line breaks.
-fn wrap_preformatted(
-    _segments: &[StyledSegment],
-    full_text: &str,
-    max_width: usize,
-) -> Vec<Vec<StyledSegment>> {
-    let mut lines = Vec::new();
+/// Appends `text` (which contains no newlines) to `current`, merging with the
+/// last run when the style matches.
+fn append_run(current: &mut Vec<StyledSegment>, style: &TextStyle, is_heading: bool, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = current.last_mut() {
+        if last.style == *style && last.is_heading == is_heading {
+            last.text.push_str(text);
+            return;
+        }
+    }
+    current.push(StyledSegment {
+        text: text.to_string(),
+        style: style.clone(),
+        is_heading,
+    });
+}
 
-    for line_str in full_text.split('\n') {
-        if line_str.is_empty() {
+/// Wraps preformatted text (containing newlines), preserving both the line
+/// breaks and the inline style of each run.  Newlines come from `<pre>` blocks
+/// (or any other text that carries `\n`), where each segment has a uniform
+/// style.
+fn wrap_preformatted(segments: &[StyledSegment], max_width: usize) -> Vec<Vec<StyledSegment>> {
+    // Phase 1: split the combined text into logical lines, tracking which
+    // style each character belongs to.  A newline ends the current line; text
+    // without a newline continues it (so runs on either side of a segment
+    // boundary that has no newline stay on the same line).
+    let mut logical_lines: Vec<Vec<StyledSegment>> = Vec::new();
+    let mut current: Vec<StyledSegment> = Vec::new();
+
+    for seg in segments {
+        let mut sub_lines = seg.text.split('\n');
+        // The first sub-line continues the current line.
+        if let Some(first) = sub_lines.next() {
+            append_run(&mut current, &seg.style, seg.is_heading, first);
+        }
+        // Each following sub-line is preceded by a newline: flush the current
+        // line and start a fresh one.
+        for sub in sub_lines {
+            logical_lines.push(std::mem::take(&mut current));
+            append_run(&mut current, &seg.style, seg.is_heading, sub);
+        }
+    }
+    logical_lines.push(current);
+
+    // Phase 2: hard-wrap each logical line to `max_width`, splitting long
+    // lines at grapheme boundaries while preserving the style runs.
+    let mut lines: Vec<Vec<StyledSegment>> = Vec::new();
+    for line in logical_lines {
+        if line.is_empty() {
+            // A blank line (e.g. from an empty preformatted line).
             lines.push(vec![StyledSegment {
                 text: String::new(),
                 style: TextStyle::default(),
@@ -315,31 +358,40 @@ fn wrap_preformatted(
             continue;
         }
 
-        if width::text_width(line_str) <= max_width {
-            lines.push(vec![StyledSegment {
-                text: line_str.to_string(),
-                style: TextStyle::default(),
-                is_heading: false,
-            }]);
-        } else {
-            let mut remaining = line_str.to_string();
-            while !remaining.is_empty() {
-                if let Some((chunk, rest)) = width::split_at_width(&remaining, max_width) {
-                    lines.push(vec![StyledSegment {
-                        text: chunk,
-                        style: TextStyle::default(),
-                        is_heading: false,
-                    }]);
-                    remaining = rest;
-                } else {
-                    lines.push(vec![StyledSegment {
-                        text: remaining,
-                        style: TextStyle::default(),
-                        is_heading: false,
-                    }]);
-                    break;
+        let mut cur: Vec<StyledSegment> = Vec::new();
+        let mut cur_width = 0usize;
+
+        for seg in &line {
+            let style = &seg.style;
+            let is_heading = seg.is_heading;
+            for g in seg.text.graphemes(true) {
+                let g_width = width::text_width(g);
+                if cur_width + g_width > max_width && !cur.is_empty() {
+                    lines.push(std::mem::take(&mut cur));
+                    cur_width = 0;
                 }
+                if let Some(last) = cur.last_mut() {
+                    if last.style == *style && last.is_heading == is_heading {
+                        last.text.push_str(g);
+                    } else {
+                        cur.push(StyledSegment {
+                            text: g.to_string(),
+                            style: style.clone(),
+                            is_heading,
+                        });
+                    }
+                } else {
+                    cur.push(StyledSegment {
+                        text: g.to_string(),
+                        style: style.clone(),
+                        is_heading,
+                    });
+                }
+                cur_width += g_width;
             }
+        }
+        if !cur.is_empty() {
+            lines.push(cur);
         }
     }
 

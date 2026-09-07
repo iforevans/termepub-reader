@@ -2,7 +2,7 @@
 
 A terminal EPUB reader with a clean, keyboard-driven interface. Written in Rust for speed, reliability, and zero runtime dependencies.
 
-**Version:** 2.4.1 (2026-09-07)
+**Version:** 2.5.0 (2026-09-07)
 
 ## Features
 
@@ -18,6 +18,8 @@ A terminal EPUB reader with a clean, keyboard-driven interface. Written in Rust 
 - **Dictionary Lookup:** 160K+ word dictionary (ECDICT), loaded in the background so the first lookup never freezes the UI
 - **Responsive Layout:** Terminal resize support with automatic re-pagination
 - **Safe EPUB Handling:** Bounded archive reads with encryption and size limits
+- **Non-interactive Mode:** Run without a TTY to dump the book's plain text to stdout (`termepub book.epub | less`)
+- **Color-coded Dialogs:** Informational dialogs (help, dictionary, confirmations) render on a blue background; error dialogs on red — both with white text, independent of the active theme
 
 ## Controls
 
@@ -53,6 +55,8 @@ termepub [book.epub] [--bookmark] [--no-css] [--version]
 - `--bookmark`: Open book at saved bookmark position
 - `--no-css`: Disable inline CSS styling (faster on slow devices)
 - `--version`: Show version number and exit
+
+**Non-interactive (piped) mode:** When run without a TTY, termepub dumps the book's plain text to stdout instead of starting the interactive reader: `termepub book.epub | less`.
 
 ## Installation
 

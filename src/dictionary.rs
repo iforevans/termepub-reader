@@ -67,18 +67,9 @@ fn find_dictionary_path() -> Option<PathBuf> {
 }
 
 fn dirs_config_path() -> Option<PathBuf> {
-    if let Some(config) = std::env::var_os("XDG_CONFIG_HOME") {
-        let mut p = PathBuf::from(config);
-        p.push("termepub");
-        return Some(p);
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        let mut p = PathBuf::from(home);
-        p.push(".config");
-        p.push("termepub");
-        return Some(p);
-    }
-    None
+    // Shared with the state store so the dictionary and state file always
+    // resolve to the same directory (including Windows %APPDATA%).
+    crate::state::termepub_config_dir()
 }
 
 fn load_dictionary() -> Option<BTreeMap<String, Definition>> {
@@ -169,20 +160,34 @@ fn suggest_word(word: &str, dict: &BTreeMap<String, Definition>) -> String {
     let min_len = target_len.saturating_sub(2);
     let max_len = target_len + 2;
 
-    // BTreeMap is already sorted, so iteration is deterministic.
-    let candidates: Vec<&str> = dict
-        .iter()
-        .filter(|(k, _)| k.len() >= min_len && k.len() <= max_len)
-        .map(|(k, _)| k.as_str())
-        .take(MAX_CANDIDATES)
-        .collect();
+    // Typos usually preserve the first character, so collect length-compatible
+    // candidates that share it separately from the rest.  Scoring both pools
+    // (prefix matches first) keeps suggestions relevant instead of defaulting
+    // to the alphabetically-earliest length-matching words.
+    let first_char = word.chars().next();
+    let mut prefix_matches: Vec<&str> = Vec::new();
+    let mut length_matches: Vec<&str> = Vec::new();
+    for k in dict.keys() {
+        if k.len() < min_len || k.len() > max_len {
+            continue;
+        }
+        if first_char.is_some_and(|c| k.starts_with(c)) {
+            if prefix_matches.len() < MAX_CANDIDATES {
+                prefix_matches.push(k.as_str());
+            }
+        } else if length_matches.len() < MAX_CANDIDATES {
+            length_matches.push(k.as_str());
+        }
+    }
 
-    // Score candidates by similarity.
+    // Score candidates by similarity, prefix matches first.
     let mut scored: Vec<(usize, &str)> = Vec::new();
-    for cand in &candidates {
-        let score = similarity_score(word, cand);
-        if score > 0 {
-            scored.push((score, cand));
+    for pool in [&prefix_matches, &length_matches] {
+        for cand in pool {
+            let score = similarity_score(word, cand);
+            if score > 0 {
+                scored.push((score, cand));
+            }
         }
     }
 

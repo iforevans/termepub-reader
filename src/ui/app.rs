@@ -43,6 +43,8 @@ pub struct App {
     pub search_query: String,
     pub search_result_page: Option<usize>,
     pub popup_message: Option<String>,
+    /// Whether the open popup is an error (red) vs. informational (blue).
+    pub popup_is_error: bool,
     pub toc_index: usize,
     pub picker_dir: PathBuf,
     pub(super) picker_entries: Vec<PickerEntry>,
@@ -52,7 +54,6 @@ pub struct App {
     pub dictionary_word: String,
     pub dictionary_result: Option<String>,
     pub state_store: Option<StateStore>,
-    pub dirty: bool,
     pub should_quit: bool,
 }
 
@@ -74,6 +75,7 @@ impl App {
             search_query: String::new(),
             search_result_page: None,
             popup_message: None,
+            popup_is_error: false,
             toc_index: 0,
             picker_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             picker_entries: Vec::new(),
@@ -83,7 +85,6 @@ impl App {
             dictionary_word: String::new(),
             dictionary_result: None,
             state_store: None,
-            dirty: false,
             should_quit: false,
         }
     }
@@ -107,6 +108,15 @@ impl App {
             // Load justify
             self.justify = store.get_justify_text();
         }
+    }
+
+    /// Shows a modal popup.  Errors render with a red background; all other
+    /// popups (confirmations, status) render with a blue one.  Both use white
+    /// text, independent of the active theme.
+    pub fn show_popup(&mut self, message: impl Into<String>, is_error: bool) {
+        self.popup_message = Some(message.into());
+        self.popup_is_error = is_error;
+        self.mode = Mode::Popup;
     }
 
     /// Whether an auto-repeat (held-key) event should be acted on.
@@ -153,8 +163,7 @@ impl App {
             && !matches!(self.mode, Mode::Dictionary | Mode::Search | Mode::Popup)
             && !typing_filter
         {
-            self.mode = Mode::Popup;
-            self.popup_message = Some("Quit? (y/n)".into());
+            self.show_popup("Quit? (y/n)", false);
             return true;
         }
 
@@ -172,8 +181,7 @@ impl App {
     fn handle_reader_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                self.mode = Mode::Popup;
-                self.popup_message = Some("Quit? (y/n)".into());
+                self.show_popup("Quit? (y/n)", false);
                 true
             }
             KeyCode::Left => {
@@ -231,17 +239,14 @@ impl App {
             }
             KeyCode::Char('t') => {
                 self.cycle_theme();
-                self.dirty = true;
                 true
             }
             KeyCode::Char('h') => {
                 self.toggle_header();
-                self.dirty = true;
                 true
             }
             KeyCode::Char('j') => {
                 self.toggle_justify();
-                self.dirty = true;
                 true
             }
             KeyCode::Char('m') => {
@@ -278,9 +283,8 @@ impl App {
                         }
                         None => {
                             self.search_result_page = None;
-                            self.popup_message = Some("No results found.".into());
                             self.search_query.clear();
-                            self.mode = Mode::Popup;
+                            self.show_popup("No results found.", false);
                             return true;
                         }
                     }
@@ -421,8 +425,9 @@ impl App {
                     } else if entry.is_epub {
                         let path = self.picker_dir.join(&entry.name);
                         if let Ok(absolute) = std::path::absolute(&path) {
-                            if self.open_book(absolute).is_ok() {
-                                self.mode = Mode::Reader;
+                            match self.open_book(absolute) {
+                                Ok(()) => self.mode = Mode::Reader,
+                                Err(e) => self.show_popup(format!("Cannot open: {e}"), true),
                             }
                         }
                     }
@@ -461,13 +466,11 @@ impl App {
     /// raise the quit confirmation instead of trapping the user in the
     /// picker with no way out.
     fn close_overlay(&mut self) {
-        self.mode = if self.book.is_some() {
-            Mode::Reader
+        if self.book.is_some() {
+            self.mode = Mode::Reader;
         } else {
-            self.mode = Mode::Popup;
-            self.popup_message = Some("Quit? (y/n)".into());
-            Mode::Popup
-        };
+            self.show_popup("Quit? (y/n)", false);
+        }
     }
 
     fn handle_popup_key(&mut self, key: KeyEvent) -> bool {
@@ -749,7 +752,6 @@ impl App {
                 let _ = store.save();
             }
         }
-        self.dirty = false;
     }
 
     pub fn refresh_picker(&mut self) {

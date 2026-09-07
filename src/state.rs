@@ -58,6 +58,27 @@ fn config_dir_for(home: &Path) -> PathBuf {
     home.join(".config").join("termepub")
 }
 
+/// Returns the directory where termepub stores per-user data (the state file
+/// and the dictionary), or `None` when it cannot be determined from the
+/// environment.
+///
+/// On Windows this is `%APPDATA%\termepub`; elsewhere `$XDG_CONFIG_HOME/termepub`
+/// when `XDG_CONFIG_HOME` is set, otherwise `~/.config/termepub`.
+///
+/// Shared by the state store and the dictionary loader so both agree on the
+/// location.
+pub fn termepub_config_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            return Some(PathBuf::from(appdata).join("termepub"));
+        }
+    }
+    if let Some(config) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Some(PathBuf::from(config).join("termepub"));
+    }
+    std::env::var_os("HOME").map(|home| config_dir_for(&PathBuf::from(home)))
+}
+
 /// Persistent state store for reading positions, bookmarks, and global
 /// settings.
 pub struct StateStore {
@@ -133,19 +154,11 @@ impl StateStore {
         Self::open(path)
     }
 
-    /// Returns the termepub config directory (`~/.config/termepub`, or
-    /// `$XDG_CONFIG_HOME/termepub` when XDG_CONFIG_HOME is set — matching
-    /// `dictionary::dirs_config_path`).
-    ///
+    /// Returns the termepub config directory, falling back to a relative
+    /// `.config/termepub` when it cannot be determined from the environment.
     /// The directory itself may not exist yet; callers create it as needed.
     fn config_dir() -> Result<PathBuf, Error> {
-        if let Some(config) = std::env::var_os("XDG_CONFIG_HOME") {
-            return Ok(PathBuf::from(config).join("termepub"));
-        }
-        let home = std::env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("."));
-        Ok(config_dir_for(&home))
+        Ok(termepub_config_dir().unwrap_or_else(|| PathBuf::from(".config").join("termepub")))
     }
 
     /// Loads and validates a state file.

@@ -27,7 +27,7 @@ impl Drop for TerminalGuard {
     }
 }
 
-pub async fn run_app(mut app: App) -> Result<(), Error> {
+pub fn run_app(mut app: App) -> Result<(), Error> {
     execute!(io::stdout(), EnterAlternateScreen).map_err(|e| Error::io_path("stdout", e))?;
     let _guard = TerminalGuard;
     enable_raw_mode().map_err(|e| Error::io_path("raw mode", e))?;
@@ -35,20 +35,29 @@ pub async fn run_app(mut app: App) -> Result<(), Error> {
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend).map_err(|e| Error::io_path("terminal", e))?;
 
+    // Draw the initial frame, then only on subsequent state changes, so an
+    // idle reader does not redraw (and burn CPU) on every poll tick.  The
+    // short poll keeps input responsive; `poll` returns immediately when a
+    // key arrives, so the timeout only bounds the idle wake-up rate.
+    let mut needs_draw = true;
     loop {
-        if event::poll(Duration::from_millis(100)).map_err(|e| Error::io_path("event poll", e))? {
+        if event::poll(Duration::from_millis(50)).map_err(|e| Error::io_path("event poll", e))? {
             match event::read().map_err(|e| Error::io_path("event read", e))? {
                 Event::Key(key) => {
                     // Handle presses and — for navigation/typing keys —
                     // auto-repeat, so holding an arrow key flips pages.
-                    if key.kind == KeyEventKind::Press
-                        || (key.kind == KeyEventKind::Repeat && app.is_repeat_safe(key))
+                    // `handle_key` reports whether it acted, so we only
+                    // schedule a redraw on actual changes.
+                    if (key.kind == KeyEventKind::Press
+                        || (key.kind == KeyEventKind::Repeat && app.is_repeat_safe(key)))
+                        && app.handle_key(key)
                     {
-                        app.handle_key(key);
+                        needs_draw = true;
                     }
                 }
                 Event::Resize(cols, rows) => {
                     app.resize(cols, rows);
+                    needs_draw = true;
                 }
                 _ => {}
             }
@@ -58,9 +67,12 @@ pub async fn run_app(mut app: App) -> Result<(), Error> {
             break;
         }
 
-        terminal
-            .draw(|frame| reader::render(frame, &app))
-            .map_err(|e| Error::io_path("terminal draw", e))?;
+        if needs_draw {
+            terminal
+                .draw(|frame| reader::render(frame, &app))
+                .map_err(|e| Error::io_path("terminal draw", e))?;
+            needs_draw = false;
+        }
     }
 
     app.save_state();

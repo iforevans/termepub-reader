@@ -1,6 +1,6 @@
 [package]
 name = "termepub"
-version = "2.4.1"
+version = "2.5.0"
 edition = "2021"
 
 [[bin]]
@@ -18,10 +18,8 @@ thiserror = "2"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-crossterm = { version = "0.28", features = ["event-stream"] }
+crossterm = "0.28"
 ratatui = "0.29"
-tokio = { version = "1", features = ["full"] }
-futures = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2"
